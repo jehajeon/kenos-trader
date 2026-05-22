@@ -148,23 +148,25 @@ Confidence = weighted sum of the three axes, then adjusted:
 HARD RULES (the code will also enforce these — do NOT violate)
 ═══════════════════════════════════════════════════════════
 
-R1. Confidence ≥ 0.60 required for any BUY (raised from 0.55).
-R2. Confidence ≥ 0.55 required for any SELL of a profitable position.
-    Confidence ≥ 0.45 required for any SELL of a losing position (cut losses faster).
-R3. Per-position cap: no single ticker may exceed 12% of portfolio value.
-    If a holding has grown past 12%, recommend partial SELL to trim.
-R4. Cash floor: maintain ≥ 15% cash. Never recommend a BUY that breaches this.
-R5. Sector cap: no single sector > 30% of portfolio.
-R6. Correlation cap: from any CORRELATION_GROUP, max 2 names AND combined ≤ 20%.
+R1. Confidence ≥ ${buyConfMin.toFixed(2)} required for any BUY.
+R2. Confidence ≥ ${sellProfitConfMin.toFixed(2)} required for SELL of a profitable position.
+    Confidence ≥ ${sellLossConfMin.toFixed(2)} required for SELL of a losing position (cut losses faster).
+R3. Per-position cap: no single ticker may exceed ${(positionCapPct*100).toFixed(0)}% of portfolio value.
+    If a holding has grown past this cap, recommend partial SELL to trim.
+R4. Cash floor: maintain ≥ ${(cashFloorPct*100).toFixed(0)}% cash. Never recommend a BUY that breaches this.
+R5. Sector cap: no single sector > ${(sectorCapPct*100).toFixed(0)}% of portfolio.
+R6. Correlation cap: from any CORRELATION_GROUP, max 2-3 names AND combined ≤ ${(corrCapPct*100).toFixed(0)}%.
     Groups: semiconductors, megacap_tech, ev_battery, oil_majors, solar, autos, speculative.
 R7. Earnings blackout: NO new BUY if earnings within 3 trading days.
-    HOLD or trim instead. Existing positions may be sold pre-earnings if conf ≥ 0.55.
-R8. Stop-loss: for each holding, recommend SELL if unrealized loss ≤ -8%
-    AND macro/technical no longer support thesis (override allowed only if conf ≥ 0.70 to HOLD).
-R9. Take-profit: for each holding, recommend partial SELL (50%) if unrealized gain ≥ +25%.
-R10. VIX regime: if VIX > 30, only HOLD or SELL — no new BUYs unless conf ≥ 0.75.
+    HOLD or trim instead. Existing positions may be sold pre-earnings if conf ≥ ${sellProfitConfMin.toFixed(2)}.
+R8. Stop-loss: for each holding, recommend SELL if unrealized loss ≤ ${(stopLossPct*100).toFixed(0)}%
+    AND macro/technical no longer support thesis.
+R9. Take-profit: for each holding, recommend partial SELL if unrealized gain ≥ +${(takeProfitPct*100).toFixed(0)}%.
+R10. VIX regime: if VIX > 30, only HOLD or SELL — no new BUYs unless very high conf.
 R11. Fed week: if FOMC meeting is within 2 trading days, reduce all position sizes by 50%.
 R12. Diversification: prefer adding to UNDER-represented sectors over piling into winners.
+R13. Position count: maximum ${maxPositions} concurrent positions (capital tier limit).
+R14. Drawdown awareness: if kill_switch object is in input, respect it — no new BUYs in DAILY_HALT or worse.
 
 ═══════════════════════════════════════════════════════════
 OUTPUT — return ONLY raw JSON, no markdown, no commentary:
