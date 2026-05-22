@@ -74,24 +74,7 @@ async function alpaca(path, method="GET", body=null) {
   return data;
 }
 
-// 가드레일 상수 (index.js와 일치 — 변경 시 양쪽 동기화)
-const RISK = {
-  CASH_FLOOR_PCT:       0.15,
-  POSITION_CAP_PCT:     0.12,
-  SECTOR_CAP_PCT:       0.30,
-  CORR_GROUP_CAP_PCT:   0.20,
-  CORR_GROUP_MAX_NAMES: 2,
-  STOP_LOSS_PCT:       -0.08,
-  TAKE_PROFIT_PCT:      0.25,
-  TAKE_PROFIT_TRIM_PCT: 0.50,
-  BUY_CONF_MIN:         0.60,
-  SELL_PROFIT_CONF_MIN: 0.55,
-  SELL_LOSS_CONF_MIN:   0.45,
-  PANIC_BUY_CONF_MIN:   0.75,
-  PANIC_VIX:            30,
-  LIMIT_SLIPPAGE_PCT:   0.002,
-};
-
+// 섹터 매핑만 로컬 유지 (UI에는 노출 안 함, 가드레일에만 사용)
 const SECTORS = {
   "🇰🇷 한국":["EWY"], "🔬 바이오":["MRNA","ABBV","REGN"], "⚡ 에너지":["XOM","CVX","NEE"],
   "🔋 배터리":["TSLA","ALB"], "💾 반도체":["NVDA","AMD","TSM","AVGO"],
@@ -100,16 +83,6 @@ const SECTORS = {
 };
 const TICKER_SECTOR = {};
 Object.entries(SECTORS).forEach(([s,ts]) => ts.forEach(t => TICKER_SECTOR[t]=s));
-
-const CORR_GROUPS = {
-  semiconductors:["NVDA","AMD","TSM","AVGO"],
-  megacap_tech:  ["MSFT","GOOGL","META","AMZN","AAPL"],
-  ev_battery:    ["TSLA","ALB"],
-  oil_majors:    ["XOM","CVX"],
-  solar:         ["ENPH","FSLR"],
-  autos:         ["TM","GM"],
-  speculative:   ["RKLB","IONQ","COIN","PLTR"],
-};
 
 export default async function handler(req, res) {
   // 0) Cron 시크릿 검증
