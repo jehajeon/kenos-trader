@@ -133,18 +133,28 @@ export default function Home() {
       if (!refreshed) throw new Error("계좌 로드 실패");
       const { acc, pos } = refreshed;
 
+      // 프로파일 + 자금 티어로 effective 리스크 계산
+      const portfolioValue = Number(acc.portfolio_value);
+      const risk = resolveRisk(profile, portfolioValue);
+
+      // 드로다운 + 킬 스위치 평가
+      const drawdowns = computeDrawdowns({
+        currentEquity: portfolioValue,
+        lastEquity:    Number(acc.last_equity || portfolioValue),
+        history,
+      });
+      const killSwitch = evaluateKillSwitch(drawdowns);
+
       const aiResp = await fetch("/api/analyze", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ account:acc, positions:pos }),
+        body: JSON.stringify({ account:acc, positions:pos, risk, kill_switch:killSwitch }),
       });
       if (!aiResp.ok) { const e=await aiResp.json(); throw new Error(e.error); }
       const ai = await aiResp.json();
 
-      const portfolioValue = Number(acc.portfolio_value);
       const vix = Number(ai.regime?.vix || 0);
       const fomcSoon = !!ai.regime?.fomc_within_2d;
-      const panicRegime = vix >= RISK_LIMITS.PANIC_VIX;
-      const elevatedRegime = vix >= RISK_LIMITS.ELEVATED_VIX;
+      const panicRegime = vix >= risk.PANIC_VIX;
 
       const positionMV = {};
       const sectorMV = {};
