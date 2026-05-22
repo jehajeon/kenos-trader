@@ -425,6 +425,14 @@ export default function Home() {
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span style={{fontSize:10,color:"#304560"}}>강도:</span>
+              {Object.entries(PROFILES).map(([key,p])=>(
+                <button key={key} onClick={()=>setProfile(key)} title={p.description} style={{...mono,padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",border:"1px solid",borderColor:profile===key?(key==="AGGRESSIVE"?"#ff4466":key==="CONSERVATIVE"?"#4d9fff":"#00ff88"):"#1e3555",background:profile===key?(key==="AGGRESSIVE"?"#ff446622":key==="CONSERVATIVE"?"#4d9fff22":"#00ff8822"):"transparent",color:profile===key?(key==="AGGRESSIVE"?"#ff4466":key==="CONSERVATIVE"?"#4d9fff":"#00ff88"):"#304560"}}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <span style={{fontSize:10,color:"#304560"}}>자동실행:</span>
               {[null,4,8,24].map(h=>(
                 <button key={h} onClick={()=>setAutoHours(h===autoHours?null:h)} style={{...mono,padding:"4px 8px",borderRadius:5,fontSize:10,cursor:"pointer",border:"1px solid",borderColor:autoHours===h?"#00ff88":"#1e3555",background:autoHours===h?"#00ff8822":"transparent",color:autoHours===h?"#00ff88":"#304560"}}>
