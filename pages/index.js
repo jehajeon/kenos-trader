@@ -231,47 +231,72 @@ export default function Home() {
         if (!price) { skipped.push({ticker:d.ticker, reason:"가격 없음"}); continue; }
         const conf = d.conf || 0;
         const earningsBlackout = !!d.earnings_blackout;
+        const isForced = !!d.forced;
+
+        // ── 킬 스위치 사전 검증 (강제 매매는 통과) ──
+        if (!isForced) {
+          if (d.action === "BUY" && !killSwitch.allowAiBuy) {
+            skipped.push({ticker:d.ticker, reason:`킬스위치 ${killSwitch.level}: ${killSwitch.reason}`});
+            continue;
+          }
+          if ((d.action === "SELL" || d.action === "TRIM") && !killSwitch.allowAiSell) {
+            skipped.push({ticker:d.ticker, reason:`킬스위치 ${killSwitch.level}: ${killSwitch.reason}`});
+            continue;
+          }
+        }
 
         try {
           if (d.action === "BUY" && d.qty > 0) {
-            // 가드레일 — BUY
-            const reqConf = panicRegime ? RISK_LIMITS.PANIC_BUY_CONF_MIN : RISK_LIMITS.BUY_CONF_MIN;
+            // 신뢰도 (패닉 시 더 높게)
+            const reqConf = panicRegime ? risk.PANIC_BUY_CONF_MIN : risk.BUY_CONF_MIN;
             if (conf < reqConf) { skipped.push({ticker:d.ticker, reason:`conf ${conf.toFixed(2)} < ${reqConf}`}); continue; }
-            if (earningsBlackout) { skipped.push({ticker:d.ticker, reason:"실적 3일 이내 — 매수 금지"}); continue; }
-            if (panicRegime && conf < RISK_LIMITS.PANIC_BUY_CONF_MIN) { skipped.push({ticker:d.ticker, reason:"VIX 패닉 — 신규매수 금지"}); continue; }
+            if (earningsBlackout) { skipped.push({ticker:d.ticker, reason:"실적 3일 이내"}); continue; }
 
             // FOMC 임박 시 수량 50% 축소
             const adjQty = fomcSoon ? Math.max(1, Math.floor(d.qty * 0.5)) : d.qty;
             const cost = price * adjQty;
 
-            // 현금 15% 플로어
-            const cashFloor = portfolioValue * RISK_LIMITS.CASH_FLOOR_PCT;
-            if (runningCash - cost < cashFloor) { skipped.push({ticker:d.ticker, reason:`현금 15% 플로어 위반`}); continue; }
+            // 최소 거래 금액 (자금 티어 기반)
+            if (cost < risk.MIN_DOLLAR_PER_TRADE) {
+              skipped.push({ticker:d.ticker, reason:`거래액 $${cost.toFixed(0)} < 최소 $${risk.MIN_DOLLAR_PER_TRADE}`});
+              continue;
+            }
 
-            // 종목 12% 캡
+            // 최대 포지션 수 (자금 티어 기반)
+            const heldTickers = Object.keys(positionMV).filter(t => positionMV[t] > 0);
+            const alreadyHeld = (positionMV[d.ticker] || 0) > 0;
+            if (!alreadyHeld && heldTickers.length >= risk.MAX_POSITIONS) {
+              skipped.push({ticker:d.ticker, reason:`최대 포지션 수 ${risk.MAX_POSITIONS}개 도달`});
+              continue;
+            }
+
+            // 현금 플로어
+            const cashFloor = portfolioValue * risk.CASH_FLOOR_PCT;
+            if (runningCash - cost < cashFloor) { skipped.push({ticker:d.ticker, reason:`현금 ${(risk.CASH_FLOOR_PCT*100).toFixed(0)}% 플로어 위반`}); continue; }
+
+            // 종목 비중 캡
             const newPosMV = (positionMV[d.ticker] || 0) + cost;
-            if (newPosMV / portfolioValue > RISK_LIMITS.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:"종목 12% 캡 초과"}); continue; }
+            if (newPosMV / portfolioValue > risk.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`종목 ${(risk.POSITION_CAP_PCT*100).toFixed(0)}% 캡 초과`}); continue; }
 
-            // 섹터 30% 캡
+            // 섹터 캡
             const sect = TICKER_SECTOR[d.ticker] || "기타";
             const newSectMV = (sectorMV[sect] || 0) + cost;
-            if (newSectMV / portfolioValue > RISK_LIMITS.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`섹터 ${sect} 30% 캡 초과`}); continue; }
+            if (newSectMV / portfolioValue > risk.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`섹터 ${sect} ${(risk.SECTOR_CAP_PCT*100).toFixed(0)}% 캡 초과`}); continue; }
 
-            // 상관관계 그룹 20% / 2종목 캡
+            // 상관관계 그룹 캡
             const grp = groupOf(d.ticker);
             if (grp) {
               const { mv: grpMV, names: grpNames } = groupExposure(grp, d.ticker);
               const newGrpMV = grpMV + newPosMV;
-              const alreadyHeld = (positionMV[d.ticker] || 0) > 0;
               const newGrpNames = grpNames + (alreadyHeld ? 0 : 1);
-              if (newGrpMV / portfolioValue > RISK_LIMITS.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} 20% 캡 초과`}); continue; }
-              if (newGrpNames > RISK_LIMITS.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} 종목 수 초과`}); continue; }
+              if (newGrpMV / portfolioValue > risk.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} ${(risk.CORR_GROUP_CAP_PCT*100).toFixed(0)}% 캡 초과`}); continue; }
+              if (newGrpNames > risk.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} 종목 수 초과`}); continue; }
             }
 
-            // 지정가 주문 (시장가의 슬리피지 보호) — AI 제공 limit_price 우선
+            // 지정가 주문 (AI 제공 우선)
             const limitPrice = d.limit_price && d.limit_price > 0
               ? d.limit_price
-              : +(price * (1 + RISK_LIMITS.LIMIT_SLIPPAGE_PCT)).toFixed(2);
+              : +(price * (1 + risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
 
             const order = await alpacaCall("/v2/orders", "POST", {
               symbol: d.ticker, qty: String(adjQty), side: "buy",
@@ -288,13 +313,13 @@ export default function Home() {
             const heldQty = Number(holding.qty);
             const cost = Number(holding.avg_entry_price);
             const profitable = price > cost;
-            const reqSellConf = d.forced ? 0 : (profitable ? RISK_LIMITS.SELL_PROFIT_CONF_MIN : RISK_LIMITS.SELL_LOSS_CONF_MIN);
+            const reqSellConf = isForced ? 0 : (profitable ? risk.SELL_PROFIT_CONF_MIN : risk.SELL_LOSS_CONF_MIN);
             if (conf < reqSellConf) { skipped.push({ticker:d.ticker, reason:`sell conf ${conf.toFixed(2)} < ${reqSellConf}`}); continue; }
 
             const sellQty = Math.min(heldQty, d.qty || heldQty);
             const limitPrice = d.limit_price && d.limit_price > 0
               ? d.limit_price
-              : +(price * (1 - RISK_LIMITS.LIMIT_SLIPPAGE_PCT)).toFixed(2);
+              : +(price * (1 - risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
 
             const order = await alpacaCall("/v2/orders", "POST", {
               symbol: d.ticker, qty: String(sellQty), side: "sell",
