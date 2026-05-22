@@ -1,7 +1,11 @@
 // pages/api/auto-run.js
 // GitHub Actions cron이 호출하는 무인 트레이딩 오케스트레이터
-// 균형형 스케줄: 평일 9 AM / 10 AM / 3:30 PM ET + 일요일 8 PM ET (리뷰만)
-// 이벤트 회피: 휴장일, FOMC/CPI/NFP 블랙아웃 시간, DST 자동 처리
+// 균형형 스케줄 + 이벤트 회피 + 프로파일/티어/킬스위치 (lib/risk-config.js와 동기화)
+
+import {
+  resolveRisk, computeDrawdowns, evaluateKillSwitch, KILL_SWITCH_LIMITS,
+  CORRELATION_GROUPS, PROFILES,
+} from "../../lib/risk-config";
 
 const ALPACA_URL = "https://paper-api.alpaca.markets";
 
