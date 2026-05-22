@@ -14,11 +14,11 @@ const RUN_WINDOWS = {
   "weekly_review":    { day:"sunday",  min:1195,max:1205,execute:false, label:"Sun 20:00 ET" },
 };
 
-// 이벤트 블랙아웃 (ET 분 기준, 해당 윈도우에 분석 자체를 스킵)
-const BLACKOUT_WINDOWS = [
-  { name:"CPI/NFP/ADP release", min:510, max:570 },   // 8:30–9:30 AM ET (월간 경제지표)
-  { name:"FOMC decision",       min:810, max:870 },   // 1:30–2:30 PM ET (FOMC일에만 의미)
-];
+// 이벤트 블랙아웃 — 시간 기반 일괄 차단은 비활성화.
+// 이유: CPI/NFP는 월 1~2회만 발생하는데 매일 8:30–9:30을 막으면 정상 9 AM 실행이 모두 차단됨.
+// 대신 AI의 매크로 분석(R10 VIX, R11 FOMC, regime.fomc_within_2d)이 이벤트별로 점수·수량을 조정함.
+// 구체적인 발표일을 추가하려면 [{date:"YYYY-MM-DD", min:N, max:N, name:""}, ...] 형식으로 확장.
+const BLACKOUT_WINDOWS = [];
 
 function getETParts() {
   const fmt = new Intl.DateTimeFormat("en-US", {
