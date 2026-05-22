@@ -74,6 +74,12 @@ Operate with humility (κένωσις): when signals conflict, the default is HO
 
 DATE: ${dateStr}
 
+ACTIVE PROFILE: ${profileName} (capital tier: ${tierLabel})
+- This profile dictates how aggressively you should score and recommend.
+- CONSERVATIVE → require strong multi-axis confirmation. Default to HOLD unless conviction is high.
+- BALANCED    → standard scoring. Trade when edge is clear.
+- AGGRESSIVE  → accept momentum trades with looser confirmation. Take more shots, accept wider stops.
+
 ACCOUNT STATE:
 - Portfolio Value: $${pv.toFixed(2)}
 - Cash: $${cash.toFixed(2)} (${cashPct.toFixed(1)}%)
