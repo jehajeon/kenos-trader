@@ -189,26 +189,26 @@ export default function Home() {
         const pnlPct = (cur - cost) / cost;
         const weight = (cur * qty) / portfolioValue;
 
-        if (pnlPct <= RISK_LIMITS.STOP_LOSS_PCT) {
+        if (pnlPct <= risk.STOP_LOSS_PCT) {
           forcedDecisions.push({
             ticker: p.symbol, action: "SELL", qty,
             reasoning: `STOP-LOSS ${(pnlPct*100).toFixed(1)}%`,
             conf: 0.99, forced: "STOP_LOSS",
           });
-        } else if (pnlPct >= RISK_LIMITS.TAKE_PROFIT_PCT) {
-          const trimQty = Math.max(1, Math.floor(qty * RISK_LIMITS.TAKE_PROFIT_TRIM_PCT));
+        } else if (pnlPct >= risk.TAKE_PROFIT_PCT) {
+          const trimQty = Math.max(1, Math.floor(qty * risk.TAKE_PROFIT_TRIM_PCT));
           forcedDecisions.push({
             ticker: p.symbol, action: "SELL", qty: trimQty,
-            reasoning: `TAKE-PROFIT +${(pnlPct*100).toFixed(1)}% (50% 익절)`,
+            reasoning: `TAKE-PROFIT +${(pnlPct*100).toFixed(1)}% (${(risk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)}% 익절)`,
             conf: 0.99, forced: "TAKE_PROFIT",
           });
-        } else if (weight > RISK_LIMITS.POSITION_CAP_PCT) {
-          const targetMV = portfolioValue * RISK_LIMITS.POSITION_CAP_PCT;
+        } else if (weight > risk.POSITION_CAP_PCT) {
+          const targetMV = portfolioValue * risk.POSITION_CAP_PCT;
           const excessMV = (cur * qty) - targetMV;
           const trimQty = Math.max(1, Math.ceil(excessMV / cur));
           forcedDecisions.push({
             ticker: p.symbol, action: "SELL", qty: trimQty,
-            reasoning: `REBALANCE 비중 ${(weight*100).toFixed(1)}% → 12% 축소`,
+            reasoning: `REBALANCE 비중 ${(weight*100).toFixed(1)}% → ${(risk.POSITION_CAP_PCT*100).toFixed(0)}% 축소`,
             conf: 0.99, forced: "POSITION_CAP",
           });
         }
