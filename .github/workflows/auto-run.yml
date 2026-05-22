@@ -1,0 +1,39 @@
+name: KENOS 자동 AI 분석 (균형형 + 이벤트 회피)
+
+# 균형형 스케줄 — 평일 9 AM / 10 AM / 3:30 PM ET + 일요일 8 PM ET
+# DST(서머타임) 자동 대응: 각 시간대마다 DST/Standard 양쪽 UTC 시점 모두 등록.
+# 엔드포인트가 현재 ET 시간이 의도한 윈도우(±5분)인지 검증해서
+# 잘못된 firing은 즉시 skip — 중복 실행 없음.
+
+on:
+  schedule:
+    # 9:00 AM ET
+    - cron: '0 13 * * 1-5'    # DST (3월~11월): 09:00 ET
+    - cron: '0 14 * * 1-5'    # Standard (11월~3월): 09:00 ET / DST: 10:00 ET
+    # 10:00 AM ET — Standard 케이스 추가
+    - cron: '0 15 * * 1-5'    # Standard: 10:00 ET
+    # 3:30 PM ET
+    - cron: '30 19 * * 1-5'   # DST: 15:30 ET
+    - cron: '30 20 * * 1-5'   # Standard: 15:30 ET / DST: 16:30 ET (윈도우 밖 → skip)
+    # Sunday 8:00 PM ET (주간 리뷰, 분석만 / 주문 없음)
+    - cron: '0 0 * * 1'       # DST: Sun 20:00 ET (UTC 월요일 00:00)
+    - cron: '0 1 * * 1'       # Standard: Sun 20:00 ET (UTC 월요일 01:00)
+  workflow_dispatch:           # 수동 트리거 가능
+
+jobs:
+  auto-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: KENOS 자동 분석 트리거
+        run: |
+          response=$(curl -X POST "${{ secrets.VERCEL_URL }}/api/auto-run" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            --max-time 120 \
+            --silent --show-error --write-out "\nHTTP_STATUS:%{http_code}")
+          echo "$response"
+          status=$(echo "$response" | grep -oE "HTTP_STATUS:[0-9]+" | cut -d: -f2)
+          if [ "$status" != "200" ]; then
+            echo "::error::auto-run returned HTTP $status"
+            exit 1
+          fi
