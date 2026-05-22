@@ -120,17 +120,38 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4) 계좌·포지션 로드
+    // 4) 계좌·포지션 + 포트폴리오 히스토리 (드로다운 계산용) 로드
     const account = await alpaca("/v2/account");
     const positions = await alpaca("/v2/positions");
+    let alpacaHistory = { equity:[], timestamp:[] };
+    try {
+      alpacaHistory = await alpaca("/v2/account/portfolio/history?period=1M&timeframe=1D");
+    } catch(e) {
+      console.warn("portfolio history fetch failed:", e.message);
+    }
+    const history = (alpacaHistory.timestamp || []).map((t,i) => ({
+      ts: new Date(t * 1000).toISOString(),
+      v:  Number(alpacaHistory.equity?.[i] || 0),
+    })).filter(h => h.v > 0);
 
-    // 5) Claude 분석 호출 — 기존 /api/analyze 엔드포인트 재사용
+    // 5) 프로파일 + 자금 티어 + 킬 스위치
+    const pv = Number(account.portfolio_value);
+    const profileName = process.env.KENOS_PROFILE in PROFILES ? process.env.KENOS_PROFILE : "BALANCED";
+    const risk = resolveRisk(profileName, pv);
+    const drawdowns = computeDrawdowns({
+      currentEquity: pv,
+      lastEquity:    Number(account.last_equity || pv),
+      history,
+    });
+    const killSwitch = evaluateKillSwitch(drawdowns);
+
+    // 6) Claude 분석 호출 — risk + kill_switch를 함께 전달
     const proto = req.headers["x-forwarded-proto"] || "https";
     const host = req.headers.host;
     const analyzeRes = await fetch(`${proto}://${host}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ account, positions }),
+      body: JSON.stringify({ account, positions, risk, kill_switch: killSwitch }),
     });
     if (!analyzeRes.ok) {
       const e = await analyzeRes.json();
@@ -138,20 +159,21 @@ export default async function handler(req, res) {
     }
     const ai = await analyzeRes.json();
 
-    // 6) Weekly review = 분석만, 주문 실행 안 함
+    // 7) Weekly review = 분석만, 주문 실행 안 함
     if (!win.execute) {
       return res.status(200).json({
         window: win.label, executed: [], skipped: [],
+        profile: profileName, tier: risk._tier_label,
+        drawdowns, kill_switch: killSwitch,
         decisions: ai.decisions || [], market: ai.market, outlook: ai.outlook,
         regime: ai.regime || null, note: "weekly review — analysis only, no orders",
       });
     }
 
-    // 7) 가드레일 + 주문 실행 (index.js의 로직을 서버사이드로 미러링)
-    const pv = Number(account.portfolio_value);
+    // 8) 가드레일 + 주문 실행
     const vix = Number(ai.regime?.vix || 0);
     const fomcSoon = !!ai.regime?.fomc_within_2d;
-    const panicRegime = vix >= RISK.PANIC_VIX;
+    const panicRegime = vix >= risk.PANIC_VIX;
 
     const positionMV = {}, sectorMV = {};
     positions.forEach(p => {
