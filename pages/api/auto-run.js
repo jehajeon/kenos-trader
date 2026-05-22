@@ -182,25 +182,25 @@ export default async function handler(req, res) {
       const s = TICKER_SECTOR[p.symbol] || "기타";
       sectorMV[s] = (sectorMV[s] || 0) + mv;
     });
-    const groupOf = t => Object.entries(CORR_GROUPS).find(([,ns]) => ns.includes(t))?.[0] || null;
-    const groupExposure = (g, exclude) => CORR_GROUPS[g].reduce((a,t) => {
+    const groupOf = t => Object.entries(CORRELATION_GROUPS).find(([,ns]) => ns.includes(t))?.[0] || null;
+    const groupExposure = (g, exclude) => CORRELATION_GROUPS[g].reduce((a,t) => {
       if (t === exclude || !positionMV[t]) return a;
       return { mv: a.mv + positionMV[t], names: a.names + 1 };
     }, { mv:0, names:0 });
 
-    // 강제 매매 (stop-loss / take-profit / rebalance)
+    // 강제 매매 (stop-loss / take-profit / rebalance) — 킬스위치도 강제는 통과시킴
     const forced = [];
     positions.forEach(p => {
       const cost = Number(p.avg_entry_price), cur = Number(p.current_price), qty = Number(p.qty);
       const pnlPct = (cur - cost) / cost;
       const weight = (cur * qty) / pv;
-      if (pnlPct <= RISK.STOP_LOSS_PCT) {
+      if (pnlPct <= risk.STOP_LOSS_PCT) {
         forced.push({ ticker:p.symbol, action:"SELL", qty, reasoning:`STOP-LOSS ${(pnlPct*100).toFixed(1)}%`, conf:0.99, forced:"STOP_LOSS" });
-      } else if (pnlPct >= RISK.TAKE_PROFIT_PCT) {
-        const trim = Math.max(1, Math.floor(qty * RISK.TAKE_PROFIT_TRIM_PCT));
+      } else if (pnlPct >= risk.TAKE_PROFIT_PCT) {
+        const trim = Math.max(1, Math.floor(qty * risk.TAKE_PROFIT_TRIM_PCT));
         forced.push({ ticker:p.symbol, action:"SELL", qty:trim, reasoning:`TAKE-PROFIT +${(pnlPct*100).toFixed(1)}%`, conf:0.99, forced:"TAKE_PROFIT" });
-      } else if (weight > RISK.POSITION_CAP_PCT) {
-        const targetMV = pv * RISK.POSITION_CAP_PCT;
+      } else if (weight > risk.POSITION_CAP_PCT) {
+        const targetMV = pv * risk.POSITION_CAP_PCT;
         const trim = Math.max(1, Math.ceil(((cur * qty) - targetMV) / cur));
         forced.push({ ticker:p.symbol, action:"SELL", qty:trim, reasoning:`REBALANCE 비중 ${(weight*100).toFixed(1)}%`, conf:0.99, forced:"POSITION_CAP" });
       }
@@ -217,34 +217,61 @@ export default async function handler(req, res) {
       const price = ai.prices?.[d.ticker] || 0;
       if (!price) { skipped.push({ticker:d.ticker, reason:"no price"}); continue; }
       const conf = d.conf || 0;
+      const isForced = !!d.forced;
+
+      // 킬 스위치 검증 (강제 매매는 통과)
+      if (!isForced) {
+        if (d.action === "BUY" && !killSwitch.allowAiBuy) {
+          skipped.push({ticker:d.ticker, reason:`killswitch ${killSwitch.level}`});
+          continue;
+        }
+        if ((d.action === "SELL" || d.action === "TRIM") && !killSwitch.allowAiSell) {
+          skipped.push({ticker:d.ticker, reason:`killswitch ${killSwitch.level}`});
+          continue;
+        }
+      }
 
       try {
         if (d.action === "BUY" && d.qty > 0) {
-          const reqConf = panicRegime ? RISK.PANIC_BUY_CONF_MIN : RISK.BUY_CONF_MIN;
+          const reqConf = panicRegime ? risk.PANIC_BUY_CONF_MIN : risk.BUY_CONF_MIN;
           if (conf < reqConf) { skipped.push({ticker:d.ticker, reason:`conf ${conf.toFixed(2)} < ${reqConf}`}); continue; }
           if (d.earnings_blackout) { skipped.push({ticker:d.ticker, reason:"earnings blackout"}); continue; }
 
           const adjQty = fomcSoon ? Math.max(1, Math.floor(d.qty * 0.5)) : d.qty;
           const cost = price * adjQty;
-          if (cash - cost < pv * RISK.CASH_FLOOR_PCT) { skipped.push({ticker:d.ticker, reason:"cash floor"}); continue; }
+
+          // 최소 거래 금액 (자금 티어)
+          if (cost < risk.MIN_DOLLAR_PER_TRADE) {
+            skipped.push({ticker:d.ticker, reason:`trade $${cost.toFixed(0)} < min $${risk.MIN_DOLLAR_PER_TRADE}`});
+            continue;
+          }
+
+          // 최대 포지션 수 (자금 티어)
+          const heldTickers = Object.keys(positionMV).filter(t => positionMV[t] > 0);
+          const alreadyHeld = (positionMV[d.ticker] || 0) > 0;
+          if (!alreadyHeld && heldTickers.length >= risk.MAX_POSITIONS) {
+            skipped.push({ticker:d.ticker, reason:`max positions ${risk.MAX_POSITIONS} reached`});
+            continue;
+          }
+
+          if (cash - cost < pv * risk.CASH_FLOOR_PCT) { skipped.push({ticker:d.ticker, reason:"cash floor"}); continue; }
 
           const newPosMV = (positionMV[d.ticker] || 0) + cost;
-          if (newPosMV / pv > RISK.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:"position cap"}); continue; }
+          if (newPosMV / pv > risk.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:"position cap"}); continue; }
 
           const sect = TICKER_SECTOR[d.ticker] || "기타";
-          if (((sectorMV[sect] || 0) + cost) / pv > RISK.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:"sector cap"}); continue; }
+          if (((sectorMV[sect] || 0) + cost) / pv > risk.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`sector ${sect} cap`}); continue; }
 
           const grp = groupOf(d.ticker);
           if (grp) {
             const ge = groupExposure(grp, d.ticker);
-            const alreadyHeld = (positionMV[d.ticker] || 0) > 0;
-            if ((ge.mv + newPosMV) / pv > RISK.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`group ${grp} cap`}); continue; }
-            if (ge.names + (alreadyHeld ? 0 : 1) > RISK.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`group ${grp} names`}); continue; }
+            if ((ge.mv + newPosMV) / pv > risk.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`group ${grp} cap`}); continue; }
+            if (ge.names + (alreadyHeld ? 0 : 1) > risk.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`group ${grp} names`}); continue; }
           }
 
           const limitPrice = d.limit_price && d.limit_price > 0
             ? d.limit_price
-            : +(price * (1 + RISK.LIMIT_SLIPPAGE_PCT)).toFixed(2);
+            : +(price * (1 + risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
           const order = await alpaca("/v2/orders", "POST", {
             symbol:d.ticker, qty:String(adjQty), side:"buy", type:"limit",
             limit_price:String(limitPrice), time_in_force:"day",
@@ -260,13 +287,13 @@ export default async function handler(req, res) {
           const heldQty = Number(holding.qty);
           const cost = Number(holding.avg_entry_price);
           const profitable = price > cost;
-          const reqSellConf = d.forced ? 0 : (profitable ? RISK.SELL_PROFIT_CONF_MIN : RISK.SELL_LOSS_CONF_MIN);
+          const reqSellConf = isForced ? 0 : (profitable ? risk.SELL_PROFIT_CONF_MIN : risk.SELL_LOSS_CONF_MIN);
           if (conf < reqSellConf) { skipped.push({ticker:d.ticker, reason:`sell conf ${conf.toFixed(2)} < ${reqSellConf}`}); continue; }
 
           const sellQty = Math.min(heldQty, d.qty || heldQty);
           const limitPrice = d.limit_price && d.limit_price > 0
             ? d.limit_price
-            : +(price * (1 - RISK.LIMIT_SLIPPAGE_PCT)).toFixed(2);
+            : +(price * (1 - risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
           const order = await alpaca("/v2/orders", "POST", {
             symbol:d.ticker, qty:String(sellQty), side:"sell", type:"limit",
             limit_price:String(limitPrice), time_in_force:"day",
@@ -287,10 +314,12 @@ export default async function handler(req, res) {
     res.status(200).json({
       window: win.label,
       et_time: `${et.weekday} ${et.hour}:${String(et.minute).padStart(2,"0")} ET`,
+      profile: profileName, tier: risk._tier_label,
       regime: ai.regime || null,
+      drawdowns, kill_switch: killSwitch,
       executed, skipped,
       portfolio_value: pv, cash_after: cash,
-      market: ai.market, risk: ai.risk, outlook: ai.outlook,
+      market: ai.market, risk_level: ai.risk, outlook: ai.outlook,
     });
 
   } catch (e) {
