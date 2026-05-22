@@ -344,7 +344,7 @@ export default function Home() {
       const final=await loadAccount();
       const finalAcc=final?.acc||acc;
 
-      const entry={id:Date.now(),ts:new Date().toISOString(),decisions:ai.decisions||[],market:ai.market,news:ai.news||[],risk:ai.risk||"MEDIUM",top_sector:ai.top_sector,outlook:ai.outlook,executed,skipped,regime:ai.regime||null,portfolio_health:ai.portfolio_health||null,value:Number(finalAcc.portfolio_value),cash:Number(finalAcc.cash),prices:ai.prices||{}};
+      const entry={id:Date.now(),ts:new Date().toISOString(),decisions:ai.decisions||[],market:ai.market,news:ai.news||[],risk:ai.risk||"MEDIUM",top_sector:ai.top_sector,outlook:ai.outlook,executed,skipped,regime:ai.regime||null,portfolio_health:ai.portfolio_health||null,value:Number(finalAcc.portfolio_value),cash:Number(finalAcc.cash),prices:ai.prices||{},profile,tier:risk._tier_name,tierLabel:risk._tier_label,drawdowns,killSwitch};
       const newLog=[entry,...log].slice(0,50);
       setLog(newLog); setExpanded(entry.id);
       localStorage.setItem("kenos_log",JSON.stringify(newLog));
