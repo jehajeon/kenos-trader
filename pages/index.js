@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Head from "next/head";
+import {
+  PROFILES, CAPITAL_TIERS, CORRELATION_GROUPS,
+  resolveRisk, getCapitalTier,
+  computeDrawdowns, evaluateKillSwitch, KILL_SWITCH_LIMITS,
+} from "../lib/risk-config";
 
 const SECTORS = {
   "🇰🇷 한국":    ["EWY"],
@@ -14,6 +19,34 @@ const SECTORS = {
 };
 const TICKER_SECTOR = {};
 Object.entries(SECTORS).forEach(([s,ts]) => ts.forEach(t => TICKER_SECTOR[t]=s));
+
+const CORRELATION_GROUPS = {
+  semiconductors: ["NVDA","AMD","TSM","AVGO"],
+  megacap_tech:   ["MSFT","GOOGL","META","AMZN","AAPL"],
+  ev_battery:     ["TSLA","ALB"],
+  oil_majors:     ["XOM","CVX"],
+  solar:          ["ENPH","FSLR"],
+  autos:          ["TM","GM"],
+  speculative:    ["RKLB","IONQ","COIN","PLTR"],
+};
+
+const RISK_LIMITS = {
+  CASH_FLOOR_PCT:        0.15,
+  POSITION_CAP_PCT:      0.12,
+  SECTOR_CAP_PCT:        0.30,
+  CORR_GROUP_CAP_PCT:    0.20,
+  CORR_GROUP_MAX_NAMES:  2,
+  STOP_LOSS_PCT:        -0.08,
+  TAKE_PROFIT_PCT:       0.25,
+  TAKE_PROFIT_TRIM_PCT:  0.50,
+  BUY_CONF_MIN:          0.60,
+  SELL_PROFIT_CONF_MIN:  0.55,
+  SELL_LOSS_CONF_MIN:    0.45,
+  PANIC_BUY_CONF_MIN:    0.75,
+  PANIC_VIX:             30,
+  ELEVATED_VIX:          25,
+  LIMIT_SLIPPAGE_PCT:    0.002,
+};
 const SECTOR_COLORS = {
   "🇰🇷 한국":"#4d9fff","🔬 바이오":"#b44dff","⚡ 에너지":"#ffb84d",
   "🔋 배터리":"#00ff88","💾 반도체":"#ff6b6b","🤖 AI/테크":"#4dffd8",
@@ -125,31 +158,176 @@ export default function Home() {
       if (!aiResp.ok) { const e=await aiResp.json(); throw new Error(e.error); }
       const ai = await aiResp.json();
 
+      const portfolioValue = Number(acc.portfolio_value);
+      const vix = Number(ai.regime?.vix || 0);
+      const fomcSoon = !!ai.regime?.fomc_within_2d;
+      const panicRegime = vix >= RISK_LIMITS.PANIC_VIX;
+      const elevatedRegime = vix >= RISK_LIMITS.ELEVATED_VIX;
+
+      const positionMV = {};
+      const sectorMV = {};
+      pos.forEach(p => {
+        const mv = Number(p.current_price) * Number(p.qty);
+        positionMV[p.symbol] = mv;
+        const s = TICKER_SECTOR[p.symbol] || "기타";
+        sectorMV[s] = (sectorMV[s] || 0) + mv;
+      });
+
+      const groupOf = (ticker) => {
+        for (const [g, names] of Object.entries(CORRELATION_GROUPS)) {
+          if (names.includes(ticker)) return g;
+        }
+        return null;
+      };
+      const groupExposure = (group, excludeTicker) => {
+        let mv = 0, names = 0;
+        CORRELATION_GROUPS[group].forEach(t => {
+          if (t === excludeTicker) return;
+          if (positionMV[t]) { mv += positionMV[t]; names += 1; }
+        });
+        return { mv, names };
+      };
+
+      // 1단계: 코드 레벨 stop-loss / take-profit 자동 트리거 (AI 결정 전에 강제)
+      const forcedDecisions = [];
+      pos.forEach(p => {
+        const cost = Number(p.avg_entry_price);
+        const cur  = Number(p.current_price);
+        const qty  = Number(p.qty);
+        const pnlPct = (cur - cost) / cost;
+        const weight = (cur * qty) / portfolioValue;
+
+        if (pnlPct <= RISK_LIMITS.STOP_LOSS_PCT) {
+          forcedDecisions.push({
+            ticker: p.symbol, action: "SELL", qty,
+            reasoning: `STOP-LOSS ${(pnlPct*100).toFixed(1)}%`,
+            conf: 0.99, forced: "STOP_LOSS",
+          });
+        } else if (pnlPct >= RISK_LIMITS.TAKE_PROFIT_PCT) {
+          const trimQty = Math.max(1, Math.floor(qty * RISK_LIMITS.TAKE_PROFIT_TRIM_PCT));
+          forcedDecisions.push({
+            ticker: p.symbol, action: "SELL", qty: trimQty,
+            reasoning: `TAKE-PROFIT +${(pnlPct*100).toFixed(1)}% (50% 익절)`,
+            conf: 0.99, forced: "TAKE_PROFIT",
+          });
+        } else if (weight > RISK_LIMITS.POSITION_CAP_PCT) {
+          const targetMV = portfolioValue * RISK_LIMITS.POSITION_CAP_PCT;
+          const excessMV = (cur * qty) - targetMV;
+          const trimQty = Math.max(1, Math.ceil(excessMV / cur));
+          forcedDecisions.push({
+            ticker: p.symbol, action: "SELL", qty: trimQty,
+            reasoning: `REBALANCE 비중 ${(weight*100).toFixed(1)}% → 12% 축소`,
+            conf: 0.99, forced: "POSITION_CAP",
+          });
+        }
+      });
+
+      // 2단계: AI 결정과 강제 결정 병합 (강제가 우선)
+      const aiDecisions = (ai.decisions || []).filter(d => d.action !== "HOLD");
+      const forcedTickers = new Set(forcedDecisions.map(d => d.ticker));
+      const merged = [
+        ...forcedDecisions,
+        ...aiDecisions.filter(d => !forcedTickers.has(d.ticker)),
+      ];
+
       const executed = [];
-      for (const d of (ai.decisions||[])) {
-        if ((d.conf||0)<0.55) continue;
-        const price = ai.prices?.[d.ticker]||0;
-        if (!price) continue;
+      const skipped = [];
+      let runningCash = Number(acc.cash);
+
+      for (const d of merged) {
+        const price = ai.prices?.[d.ticker] || 0;
+        if (!price) { skipped.push({ticker:d.ticker, reason:"가격 없음"}); continue; }
+        const conf = d.conf || 0;
+        const earningsBlackout = !!d.earnings_blackout;
+
         try {
-          if (d.action==="BUY"&&d.qty>0) {
-            const cashAvail=Number(acc.cash)-Number(acc.portfolio_value)*0.15;
-            if (cashAvail<price*d.qty) continue;
-            const order=await alpacaCall("/v2/orders","POST",{symbol:d.ticker,qty:String(d.qty),side:"buy",type:"market",time_in_force:"day"});
-            executed.push({action:"BUY",ticker:d.ticker,qty:d.qty,price,orderId:order.id});
-          } else if (d.action==="SELL") {
-            const holding=pos.find(p=>p.symbol===d.ticker);
-            if (!holding) continue;
-            const order=await alpacaCall("/v2/orders","POST",{symbol:d.ticker,qty:String(holding.qty),side:"sell",type:"market",time_in_force:"day"});
-            executed.push({action:"SELL",ticker:d.ticker,qty:Number(holding.qty),price,orderId:order.id,pnl:(price-Number(holding.avg_entry_price))*Number(holding.qty)});
+          if (d.action === "BUY" && d.qty > 0) {
+            // 가드레일 — BUY
+            const reqConf = panicRegime ? RISK_LIMITS.PANIC_BUY_CONF_MIN : RISK_LIMITS.BUY_CONF_MIN;
+            if (conf < reqConf) { skipped.push({ticker:d.ticker, reason:`conf ${conf.toFixed(2)} < ${reqConf}`}); continue; }
+            if (earningsBlackout) { skipped.push({ticker:d.ticker, reason:"실적 3일 이내 — 매수 금지"}); continue; }
+            if (panicRegime && conf < RISK_LIMITS.PANIC_BUY_CONF_MIN) { skipped.push({ticker:d.ticker, reason:"VIX 패닉 — 신규매수 금지"}); continue; }
+
+            // FOMC 임박 시 수량 50% 축소
+            const adjQty = fomcSoon ? Math.max(1, Math.floor(d.qty * 0.5)) : d.qty;
+            const cost = price * adjQty;
+
+            // 현금 15% 플로어
+            const cashFloor = portfolioValue * RISK_LIMITS.CASH_FLOOR_PCT;
+            if (runningCash - cost < cashFloor) { skipped.push({ticker:d.ticker, reason:`현금 15% 플로어 위반`}); continue; }
+
+            // 종목 12% 캡
+            const newPosMV = (positionMV[d.ticker] || 0) + cost;
+            if (newPosMV / portfolioValue > RISK_LIMITS.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:"종목 12% 캡 초과"}); continue; }
+
+            // 섹터 30% 캡
+            const sect = TICKER_SECTOR[d.ticker] || "기타";
+            const newSectMV = (sectorMV[sect] || 0) + cost;
+            if (newSectMV / portfolioValue > RISK_LIMITS.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`섹터 ${sect} 30% 캡 초과`}); continue; }
+
+            // 상관관계 그룹 20% / 2종목 캡
+            const grp = groupOf(d.ticker);
+            if (grp) {
+              const { mv: grpMV, names: grpNames } = groupExposure(grp, d.ticker);
+              const newGrpMV = grpMV + newPosMV;
+              const alreadyHeld = (positionMV[d.ticker] || 0) > 0;
+              const newGrpNames = grpNames + (alreadyHeld ? 0 : 1);
+              if (newGrpMV / portfolioValue > RISK_LIMITS.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} 20% 캡 초과`}); continue; }
+              if (newGrpNames > RISK_LIMITS.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} 종목 수 초과`}); continue; }
+            }
+
+            // 지정가 주문 (시장가의 슬리피지 보호) — AI 제공 limit_price 우선
+            const limitPrice = d.limit_price && d.limit_price > 0
+              ? d.limit_price
+              : +(price * (1 + RISK_LIMITS.LIMIT_SLIPPAGE_PCT)).toFixed(2);
+
+            const order = await alpacaCall("/v2/orders", "POST", {
+              symbol: d.ticker, qty: String(adjQty), side: "buy",
+              type: "limit", limit_price: String(limitPrice), time_in_force: "day",
+            });
+            executed.push({action:"BUY", ticker:d.ticker, qty:adjQty, price, limitPrice, orderId:order.id, forced:d.forced||null});
+            runningCash -= cost;
+            positionMV[d.ticker] = newPosMV;
+            sectorMV[sect] = newSectMV;
+
+          } else if (d.action === "SELL" || d.action === "TRIM") {
+            const holding = pos.find(p => p.symbol === d.ticker);
+            if (!holding) { skipped.push({ticker:d.ticker, reason:"보유 없음"}); continue; }
+            const heldQty = Number(holding.qty);
+            const cost = Number(holding.avg_entry_price);
+            const profitable = price > cost;
+            const reqSellConf = d.forced ? 0 : (profitable ? RISK_LIMITS.SELL_PROFIT_CONF_MIN : RISK_LIMITS.SELL_LOSS_CONF_MIN);
+            if (conf < reqSellConf) { skipped.push({ticker:d.ticker, reason:`sell conf ${conf.toFixed(2)} < ${reqSellConf}`}); continue; }
+
+            const sellQty = Math.min(heldQty, d.qty || heldQty);
+            const limitPrice = d.limit_price && d.limit_price > 0
+              ? d.limit_price
+              : +(price * (1 - RISK_LIMITS.LIMIT_SLIPPAGE_PCT)).toFixed(2);
+
+            const order = await alpacaCall("/v2/orders", "POST", {
+              symbol: d.ticker, qty: String(sellQty), side: "sell",
+              type: "limit", limit_price: String(limitPrice), time_in_force: "day",
+            });
+            executed.push({
+              action: sellQty < heldQty ? "TRIM" : "SELL",
+              ticker: d.ticker, qty: sellQty, price, limitPrice, orderId: order.id,
+              pnl: (price - cost) * sellQty,
+              forced: d.forced || null,
+            });
+            runningCash += price * sellQty;
+            positionMV[d.ticker] = Math.max(0, (positionMV[d.ticker] || 0) - price * sellQty);
           }
-        } catch(oe) { console.warn(`주문 실패 ${d.ticker}:`,oe.message); }
+        } catch(oe) {
+          console.warn(`주문 실패 ${d.ticker}:`, oe.message);
+          skipped.push({ticker:d.ticker, reason:`주문 실패: ${oe.message}`});
+        }
       }
 
       await new Promise(r=>setTimeout(r,1000));
       const final=await loadAccount();
       const finalAcc=final?.acc||acc;
 
-      const entry={id:Date.now(),ts:new Date().toISOString(),decisions:ai.decisions||[],market:ai.market,news:ai.news||[],risk:ai.risk||"MEDIUM",top_sector:ai.top_sector,outlook:ai.outlook,executed,value:Number(finalAcc.portfolio_value),cash:Number(finalAcc.cash),prices:ai.prices||{}};
+      const entry={id:Date.now(),ts:new Date().toISOString(),decisions:ai.decisions||[],market:ai.market,news:ai.news||[],risk:ai.risk||"MEDIUM",top_sector:ai.top_sector,outlook:ai.outlook,executed,skipped,regime:ai.regime||null,portfolio_health:ai.portfolio_health||null,value:Number(finalAcc.portfolio_value),cash:Number(finalAcc.cash),prices:ai.prices||{}};
       const newLog=[entry,...log].slice(0,50);
       setLog(newLog); setExpanded(entry.id);
       localStorage.setItem("kenos_log",JSON.stringify(newLog));
@@ -260,6 +438,43 @@ export default function Home() {
           </div>
         )}
 
+        {/* 거시 환경 패널 */}
+        {log[0]?.regime&&(
+          <div style={{...card(),marginBottom:14}}>
+            <div style={{...lbl,marginBottom:8}}>🌍 거시 환경 (Regime)</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,fontSize:11,...mono}}>
+              {(() => {
+                const g = log[0].regime;
+                const items = [
+                  ["VIX", g.vix?.toFixed(1), g.vix_state, g.vix>30?"#ff4466":g.vix>20?"#ffd700":"#00ff88"],
+                  ["10Y", g.us10y?.toFixed(2)+"%", `2Y ${g.us2y?.toFixed(2)}%`, "#4d9fff"],
+                  ["10Y-2Y", g.yield_curve_bps+"bps", g.yield_curve_bps<0?"역전":"정상", g.yield_curve_bps<0?"#ff4466":"#00ff88"],
+                  ["DXY", g.dxy?.toFixed(2), g.dxy_trend, "#b44dff"],
+                  ["WTI", "$"+g.wti?.toFixed(2), `5d ${g.wti_5d_pct>0?"+":""}${g.wti_5d_pct?.toFixed(1)}%`, "#ffb84d"],
+                  ["BTC", "$"+Math.round(g.btc||0).toLocaleString(), "", "#ff8c4d"],
+                  ["Gold", "$"+Math.round(g.gold||0).toLocaleString(), "", "#ffd700"],
+                  ["USD/KRW", g.usdkrw?.toFixed(0), "", "#4d9fff"],
+                  ["FOMC", g.next_fomc_date||"—", g.fomc_within_2d?"임박":"여유", g.fomc_within_2d?"#ff4466":"#8090a8"],
+                  ["Credit", g.credit_spreads, "", g.credit_spreads==="widening"?"#ff4466":"#00ff88"],
+                  ["Regime", g.overall_risk_regime, "", g.overall_risk_regime==="panic"?"#ff4466":g.overall_risk_regime==="risk_on"?"#00ff88":"#ffd700"],
+                ];
+                return items.map(([k,v,sub,c],i)=>(
+                  <div key={i} style={{background:"#07101c",borderRadius:5,padding:"5px 8px",border:"1px solid #152236"}}>
+                    <div style={{fontSize:9,color:"#304560",letterSpacing:"0.08em"}}>{k}</div>
+                    <div style={{color:c,fontWeight:700,fontSize:12,marginTop:1}}>{v||"—"}</div>
+                    {sub&&<div style={{fontSize:9,color:"#5a7090",marginTop:1}}>{sub}</div>}
+                  </div>
+                ));
+              })()}
+            </div>
+            {log[0].portfolio_health?.correlation_warnings?.length>0&&(
+              <div style={{marginTop:8,padding:"6px 10px",background:"#ff446610",border:"1px solid #ff446630",borderRadius:5,fontSize:11,color:"#ff7799"}}>
+                ⚠ {log[0].portfolio_health.correlation_warnings.join(" · ")}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 차트 + 분석 */}
         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:10,marginBottom:14}}>
           <div style={{...card(),height:145}}>
@@ -337,6 +552,14 @@ export default function Home() {
                                   <span>신뢰도</span><span style={{color:"#ffd700",...mono}}>{(d.conf*100).toFixed(0)}%</span>
                                 </div>
                               </div>
+                            ))}
+                          </div>
+                        )}
+                        {entry.skipped?.length>0&&(
+                          <div style={{marginTop:6,padding:"5px 8px",background:"#ff8c4d10",border:"1px solid #ff8c4d30",borderRadius:5}}>
+                            <div style={{fontSize:10,color:"#ff8c4d",marginBottom:3,letterSpacing:"0.08em"}}>🛡 가드레일 차단</div>
+                            {entry.skipped.map((s,i)=>(
+                              <div key={i} style={{fontSize:10,color:"#b08560",...mono}}>{s.ticker}: {s.reason}</div>
                             ))}
                           </div>
                         )}
