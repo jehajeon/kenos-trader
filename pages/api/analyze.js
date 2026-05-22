@@ -1,5 +1,6 @@
 // pages/api/analyze.js
-// Claude AI 분석 API — 서버에서 실행 (API 키 안전하게 보관)
+// KENOS Claude AI 분석 — 전문 트레이딩 판단 엔진
+// 거시·금리·환율·유가·VIX·실적일정·상관관계까지 명시적으로 평가
 
 const SECTORS = {
   "🇰🇷 한국":    ["EWY"],
@@ -13,43 +14,208 @@ const SECTORS = {
   "🚀 미래유망": ["RKLB","IONQ","AAPL","COIN"],
 };
 
+// 상관관계가 높은 종목 그룹 (한 그룹에서 과도한 동시 보유 방지)
+const CORRELATION_GROUPS = {
+  "semiconductors": ["NVDA","AMD","TSM","AVGO"],
+  "megacap_tech":   ["MSFT","GOOGL","META","AMZN","AAPL"],
+  "ev_battery":     ["TSLA","ALB"],
+  "oil_majors":     ["XOM","CVX"],
+  "solar":          ["ENPH","FSLR"],
+  "autos":          ["TM","GM"],
+  "speculative":    ["RKLB","IONQ","COIN","PLTR"],
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
   const CLAUDE_KEY = process.env.ANTHROPIC_API_KEY;
   if (!CLAUDE_KEY) return res.status(500).json({ error: "Claude API 키 없음" });
 
-  const { account, positions } = req.body;
-  const held = positions?.length
-    ? positions.map(p => `${p.symbol}(${p.qty}주@$${Number(p.avg_entry_price).toFixed(2)})`).join(", ")
+  const { account, positions, risk } = req.body;
+  const pv = Number(account.portfolio_value);
+  const cash = Number(account.cash);
+  const cashPct = (cash / pv) * 100;
+
+  // 호출자(브라우저/auto-run)가 risk 객체를 보내면 그 임계값을 프롬프트에 반영
+  // 없으면 기본 표준형 값으로 표시 (실제 강제는 코드가 함)
+  const r = risk || {};
+  const buyConfMin = r.BUY_CONF_MIN ?? 0.60;
+  const sellProfitConfMin = r.SELL_PROFIT_CONF_MIN ?? 0.55;
+  const sellLossConfMin = r.SELL_LOSS_CONF_MIN ?? 0.45;
+  const stopLossPct = r.STOP_LOSS_PCT ?? -0.08;
+  const takeProfitPct = r.TAKE_PROFIT_PCT ?? 0.25;
+  const positionCapPct = r.POSITION_CAP_PCT ?? 0.12;
+  const sectorCapPct = r.SECTOR_CAP_PCT ?? 0.30;
+  const corrCapPct = r.CORR_GROUP_CAP_PCT ?? 0.20;
+  const cashFloorPct = r.CASH_FLOOR_PCT ?? 0.15;
+  const maxPositions = r.MAX_POSITIONS ?? 12;
+  const profileName = r._profile_name || "BALANCED";
+  const tierLabel = r._tier_label || "스몰";
+
+  const holdingsDetail = positions?.length
+    ? positions.map(p => {
+        const cost = Number(p.avg_entry_price);
+        const cur  = Number(p.current_price);
+        const qty  = Number(p.qty);
+        const mv   = cur * qty;
+        const pnlPct = ((cur - cost) / cost) * 100;
+        const weight = (mv / pv) * 100;
+        return `${p.symbol}: ${qty}주 @ avg $${cost.toFixed(2)} → 현재 $${cur.toFixed(2)} | P&L ${pnlPct.toFixed(1)}% | 비중 ${weight.toFixed(1)}%`;
+      }).join("\n  ")
     : "없음";
 
-  const prompt = `You are NEXUS, an expert AI trading strategist. Paper trading only.
-Date: ${new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" })}
+  const today = new Date();
+  const dateStr = today.toLocaleDateString("en-US", {
+    weekday:"long", month:"long", day:"numeric", year:"numeric"
+  });
 
-ALPACA ACCOUNT:
-- Portfolio Value: $${Number(account.portfolio_value).toFixed(2)}
-- Cash: $${Number(account.cash).toFixed(2)} (${((Number(account.cash)/Number(account.portfolio_value))*100).toFixed(1)}%)
-- Holdings: ${held}
+  const prompt = `You are KENOS — a disciplined, professional AI trading strategist for a US paper-trading account.
+Operate with humility (κένωσις): when signals conflict, the default is HOLD. Never force trades.
 
-WATCHLIST:
+DATE: ${dateStr}
+
+ACCOUNT STATE:
+- Portfolio Value: $${pv.toFixed(2)}
+- Cash: $${cash.toFixed(2)} (${cashPct.toFixed(1)}%)
+- Holdings:
+  ${holdingsDetail}
+
+UNIVERSE (watchlist):
 ${Object.entries(SECTORS).map(([s,ts]) => `${s}: ${ts.join(", ")}`).join("\n")}
 
-PROTOCOL:
-1. Search CURRENT real-time prices for all holdings + top 8 watchlist picks
-2. Search latest market news, analyst upgrades, macro events
-3. Ensemble analysis: Technical 35% + Sentiment 30% + Macro 35%
-4. Only recommend if confidence ≥ 55%, max 12% per position, keep ≥15% cash
+═══════════════════════════════════════════════════════════
+RESEARCH PROTOCOL — perform ALL of the following web searches:
+═══════════════════════════════════════════════════════════
 
-Return ONLY raw JSON:
+[A] MACRO REGIME (assess overall risk environment)
+  1. Latest Fed funds rate, next FOMC meeting date & market-implied rate path
+  2. Most recent CPI / PPI / Core PCE / Non-farm payrolls release & next scheduled release date
+  3. US Treasury yields: 2Y, 10Y, 30Y — note 10Y-2Y spread (inversion = recession signal)
+  4. Credit spreads: HY OAS or HYG/LQD ratio (widening = risk-off)
+  5. US Dollar Index (DXY) trend
+  6. WTI Crude oil price & weekly change (>5% move = energy/inflation impact)
+  7. VIX level (>20 = elevated fear, >30 = panic, <15 = complacency)
+  8. Gold price (safe-haven flow indicator)
+  9. Bitcoin price (risk-on/off proxy, also affects COIN directly)
+ 10. Geopolitical headlines (Taiwan/China, Middle East, Ukraine, tariffs)
+
+[B] PER-TICKER FUNDAMENTALS (for all holdings + top watchlist candidates)
+ 11. Current real-time price + today's % change + 5-day, 20-day trend
+ 12. Next earnings date (CRITICAL: NEVER open new positions within 3 trading days before earnings)
+ 13. Recent analyst rating changes (upgrades/downgrades within 7 days)
+ 14. Unusual volume (today's volume vs 20-day avg)
+ 15. Recent news sentiment (last 48h)
+ 16. Short interest if available (>20% = squeeze risk)
+
+[C] FX & REGIONAL (for international exposure)
+ 17. USD/KRW (impacts EWY directly)
+ 18. USD/JPY (impacts TM)
+ 19. USD/TWD & China PMI (impacts TSM, AVGO, AAPL supply chain)
+
+═══════════════════════════════════════════════════════════
+DECISION FRAMEWORK
+═══════════════════════════════════════════════════════════
+
+Score each candidate ticker with three axes in [-1.0, +1.0]:
+
+▸ TECHNICAL (35%): price trend, momentum (RSI/MACD if inferable), volume confirmation,
+   support/resistance proximity, 20/50-day MA position.
+   Volume rule: a price move without volume confirmation gets 50% score penalty.
+
+▸ SENTIMENT (30%): analyst actions, news tone last 48h, social/retail mood.
+   Penalize heavily (-0.4) if earnings within 3 trading days.
+
+▸ MACRO (35%): score how the current macro regime favors THIS ticker specifically.
+   - Rising 10Y yields → negative for long-duration tech (MSFT, GOOGL, growth)
+   - Falling DXY → positive for EWY, TM, multinational exporters
+   - Rising WTI → positive for XOM/CVX, negative for airlines/consumer
+   - VIX > 25 → reduce all macro scores by 0.3 (defensive bias)
+   - 10Y-2Y inversion deepening → reduce cyclicals, favor staples/quality
+   - BTC trending → positive for COIN
+
+Confidence = weighted sum of the three axes, then adjusted:
+  +0.05 if 3-of-3 axes agree on direction
+  -0.10 if any single axis is below -0.3 (one strong negative is a veto signal)
+  -0.15 if VIX > 30 (panic regime — only highest-conviction trades)
+
+═══════════════════════════════════════════════════════════
+HARD RULES (the code will also enforce these — do NOT violate)
+═══════════════════════════════════════════════════════════
+
+R1. Confidence ≥ 0.60 required for any BUY (raised from 0.55).
+R2. Confidence ≥ 0.55 required for any SELL of a profitable position.
+    Confidence ≥ 0.45 required for any SELL of a losing position (cut losses faster).
+R3. Per-position cap: no single ticker may exceed 12% of portfolio value.
+    If a holding has grown past 12%, recommend partial SELL to trim.
+R4. Cash floor: maintain ≥ 15% cash. Never recommend a BUY that breaches this.
+R5. Sector cap: no single sector > 30% of portfolio.
+R6. Correlation cap: from any CORRELATION_GROUP, max 2 names AND combined ≤ 20%.
+    Groups: semiconductors, megacap_tech, ev_battery, oil_majors, solar, autos, speculative.
+R7. Earnings blackout: NO new BUY if earnings within 3 trading days.
+    HOLD or trim instead. Existing positions may be sold pre-earnings if conf ≥ 0.55.
+R8. Stop-loss: for each holding, recommend SELL if unrealized loss ≤ -8%
+    AND macro/technical no longer support thesis (override allowed only if conf ≥ 0.70 to HOLD).
+R9. Take-profit: for each holding, recommend partial SELL (50%) if unrealized gain ≥ +25%.
+R10. VIX regime: if VIX > 30, only HOLD or SELL — no new BUYs unless conf ≥ 0.75.
+R11. Fed week: if FOMC meeting is within 2 trading days, reduce all position sizes by 50%.
+R12. Diversification: prefer adding to UNDER-represented sectors over piling into winners.
+
+═══════════════════════════════════════════════════════════
+OUTPUT — return ONLY raw JSON, no markdown, no commentary:
+═══════════════════════════════════════════════════════════
+
 {
+  "regime": {
+    "vix": 0.0,
+    "vix_state": "calm|normal|elevated|panic",
+    "fed_funds_rate": 0.0,
+    "next_fomc_date": "YYYY-MM-DD or null",
+    "fomc_within_2d": false,
+    "us10y": 0.0,
+    "us2y": 0.0,
+    "yield_curve_bps": 0,
+    "dxy": 0.0,
+    "dxy_trend": "rising|falling|flat",
+    "wti": 0.0,
+    "wti_5d_pct": 0.0,
+    "btc": 0.0,
+    "gold": 0.0,
+    "usdkrw": 0.0,
+    "usdjpy": 0.0,
+    "credit_spreads": "tightening|stable|widening",
+    "overall_risk_regime": "risk_on|neutral|risk_off|panic"
+  },
   "prices": {"TICKER": 0.00},
-  "decisions": [{"ticker":"NVDA","action":"BUY","qty":2,"reasoning":"<80chars","tech":0.0,"sent":0.0,"macro":0.0,"conf":0.0}],
-  "market": "2-sentence overview",
-  "news": ["h1","h2","h3"],
-  "risk": "LOW|MEDIUM|HIGH",
-  "top_sector": "sector",
-  "outlook": "1-sentence forecast"
+  "earnings_calendar": {"TICKER": "YYYY-MM-DD or null"},
+  "decisions": [
+    {
+      "ticker": "NVDA",
+      "action": "BUY|SELL|TRIM|HOLD",
+      "qty": 2,
+      "qty_pct_of_position": 0,
+      "reasoning": "<100 chars, cite the dominant driver>",
+      "tech": 0.0,
+      "sent": 0.0,
+      "macro": 0.0,
+      "conf": 0.0,
+      "axes_agree": false,
+      "stop_loss_price": 0.00,
+      "take_profit_price": 0.00,
+      "earnings_blackout": false,
+      "limit_price": 0.00,
+      "rule_violations": []
+    }
+  ],
+  "portfolio_health": {
+    "sector_concentration": {"sector_name": 0.0},
+    "correlation_warnings": ["semiconductors: 3 names = 28% (over 20% cap)"],
+    "rebalance_needed": false
+  },
+  "market": "2-sentence overview of regime and dominant theme",
+  "news": ["headline 1", "headline 2", "headline 3"],
+  "risk": "LOW|MEDIUM|HIGH|EXTREME",
+  "top_sector": "sector name",
+  "outlook": "1-sentence forward view tied to upcoming catalysts"
 }`;
 
   try {
@@ -62,7 +228,7 @@ Return ONLY raw JSON:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 2500,
+        max_tokens: 4500,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: [{ role: "user", content: prompt }],
       }),
