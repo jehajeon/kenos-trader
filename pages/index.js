@@ -353,7 +353,7 @@ export default function Home() {
       localStorage.setItem("kenos_hist",JSON.stringify(newHist));
     } catch(e) { setErr(e.message); }
     finally { clearTimeout(t1); clearTimeout(t2); setLoading(false); setStep(""); }
-  }, [loading, log, history]);
+  }, [loading, log, history, profile]);
 
   useEffect(() => {
     if (autoRef.current) clearInterval(autoRef.current);
