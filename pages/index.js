@@ -368,8 +368,18 @@ export default function Home() {
   const ini=history.length?history[0].v:pv;
   const pnlD=pv-ini, pnlP=ini?(pnlD/ini)*100:0, up=pnlD>=0, aCol=up?"#00ff88":"#ff4466";
   const days=history.length?Math.floor((Date.now()-new Date(history[0].ts))/86400000):0;
-  const riskCol={LOW:"#00ff88",MEDIUM:"#ffd700",HIGH:"#ff4466"};
+  const riskCol={LOW:"#00ff88",MEDIUM:"#ffd700",HIGH:"#ff4466",EXTREME:"#ff4466"};
   const lastRisk=log[0]?.risk||"—";
+
+  // 현재 effective 리스크 (프로파일 + 자금 티어)
+  const currentRisk = pv > 0 ? resolveRisk(profile, pv) : null;
+  const currentTier = pv > 0 ? getCapitalTier(pv) : null;
+  const currentDrawdowns = account ? computeDrawdowns({
+    currentEquity: pv,
+    lastEquity:    Number(account.last_equity || pv),
+    history,
+  }) : null;
+  const currentKillSwitch = currentDrawdowns ? evaluateKillSwitch(currentDrawdowns) : null;
   const sells=log.flatMap(e=>e.executed||[]).filter(e=>e.action==="SELL");
   const wr=sells.length?((sells.filter(e=>(e.pnl||0)>0).length/sells.length)*100).toFixed(0):null;
 
