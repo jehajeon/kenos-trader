@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+.next/
+.vercel/
+
+# Claude Code — keep settings.json (team hooks), ignore personal/local overrides
+.claude/settings.local.json
+.claude/memory/
