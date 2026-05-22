@@ -473,6 +473,64 @@ export default function Home() {
           </div>
         )}
 
+        {/* 리스크 프로파일 + 자금 티어 + 킬 스위치 패널 */}
+        {currentRisk && currentKillSwitch && (
+          <div style={{...card(),marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={lbl}>🎯 리스크 프로파일 & 자금 관리</div>
+              {currentKillSwitch.level !== "NORMAL" && (
+                <span style={{...bdg(currentKillSwitch.severity>=2?"#ff4466":"#ffd700"),padding:"3px 10px",fontSize:11}}>
+                  ⚠ {currentKillSwitch.level}
+                </span>
+              )}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,fontSize:11,...mono}}>
+              {[
+                ["프로파일", PROFILES[profile].label, profile, "#00ff88"],
+                ["자금 티어", currentTier.label, currentTier.note, "#4d9fff"],
+                ["BUY 신뢰도 ≥", currentRisk.BUY_CONF_MIN.toFixed(2), "VIX패닉 "+currentRisk.PANIC_BUY_CONF_MIN.toFixed(2), "#ffd700"],
+                ["스탑로스", (currentRisk.STOP_LOSS_PCT*100).toFixed(0)+"%", "자동 전량매도", "#ff4466"],
+                ["익절", "+"+(currentRisk.TAKE_PROFIT_PCT*100).toFixed(0)+"%", (currentRisk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)+"% 트림", "#00ff88"],
+                ["종목당", (currentRisk.POSITION_CAP_PCT*100).toFixed(0)+"%", "$"+(pv*currentRisk.POSITION_CAP_PCT).toFixed(0), "#b44dff"],
+                ["섹터당", (currentRisk.SECTOR_CAP_PCT*100).toFixed(0)+"%", "그룹 "+(currentRisk.CORR_GROUP_CAP_PCT*100).toFixed(0)+"%", "#ff8c4d"],
+                ["현금 ≥", (currentRisk.CASH_FLOOR_PCT*100).toFixed(0)+"%", "$"+(pv*currentRisk.CASH_FLOOR_PCT).toFixed(0), "#4d9fff"],
+                ["최대 종목 수", currentRisk.MAX_POSITIONS+"개", "최소 거래 $"+currentRisk.MIN_DOLLAR_PER_TRADE, "#ffd700"],
+              ].map(([k,v,sub,c],i)=>(
+                <div key={i} style={{background:"#07101c",borderRadius:5,padding:"5px 8px",border:"1px solid #152236"}}>
+                  <div style={{fontSize:9,color:"#304560",letterSpacing:"0.08em"}}>{k}</div>
+                  <div style={{color:c,fontWeight:700,fontSize:12,marginTop:1}}>{v}</div>
+                  {sub&&<div style={{fontSize:9,color:"#5a7090",marginTop:1}}>{sub}</div>}
+                </div>
+              ))}
+            </div>
+            {/* 드로다운 상태 */}
+            <div style={{marginTop:8,display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:11,...mono}}>
+              {[
+                ["일일", currentDrawdowns.daily,   KILL_SWITCH_LIMITS.DAILY_LOSS_HALT],
+                ["주간", currentDrawdowns.weekly,  KILL_SWITCH_LIMITS.WEEKLY_LOSS_HALT],
+                ["월간", currentDrawdowns.monthly, KILL_SWITCH_LIMITS.MONTHLY_LOSS_HALT],
+              ].map(([label,val,limit],i)=>{
+                const breached = val <= limit;
+                const col = breached ? "#ff4466" : val < 0 ? "#ffd700" : "#00ff88";
+                return (
+                  <div key={i} style={{background:"#07101c",borderRadius:5,padding:"6px 10px",border:"1px solid "+(breached?"#ff446644":"#152236")}}>
+                    <div style={{fontSize:9,color:"#304560",letterSpacing:"0.08em"}}>{label} PnL</div>
+                    <div style={{color:col,fontWeight:700,fontSize:13,marginTop:1}}>
+                      {val>0?"+":""}{(val*100).toFixed(2)}%
+                    </div>
+                    <div style={{fontSize:9,color:"#5a7090"}}>한도 {(limit*100).toFixed(0)}%</div>
+                  </div>
+                );
+              })}
+            </div>
+            {currentKillSwitch.reason && (
+              <div style={{marginTop:8,padding:"6px 10px",background:"#ff446610",border:"1px solid #ff446630",borderRadius:5,fontSize:11,color:"#ff7799"}}>
+                🛑 {currentKillSwitch.reason}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 거시 환경 패널 */}
         {log[0]?.regime&&(
           <div style={{...card(),marginBottom:14}}>
