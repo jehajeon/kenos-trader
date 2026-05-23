@@ -155,7 +155,7 @@ export default async function handler(req, res) {
     });
     const killSwitch = evaluateKillSwitch(drawdowns);
 
-    // 6) Claude 분석 호출 — risk + kill_switch + breaking_context 전달
+    // 6) AI 분석 호출 (/api/analyze → Gemini 2.5 Pro) — risk + kill_switch + breaking_context 전달
     const proto = req.headers["x-forwarded-proto"] || "https";
     const host = req.headers.host;
     const analyzeRes = await fetch(`${proto}://${host}/api/analyze`, {
