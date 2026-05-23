@@ -232,11 +232,33 @@ OUTPUT — return ONLY raw JSON, no markdown, no commentary:
     "rebalance_needed": false
   },
   "market": "2-sentence overview of regime and dominant theme",
-  "news": ["headline 1", "headline 2", "headline 3"],
+  "news": [
+    {
+      "headline": "Full headline text (≤120 chars)",
+      "severity": "HIGH|MEDIUM|LOW",
+      "category": "geopolitical|macro|earnings|ma|regulatory|other",
+      "impacted_tickers": ["NVDA", "TSM"],
+      "ts_iso": "2026-05-22T14:30:00Z or null if unknown",
+      "source": "Reuters|Bloomberg|... or 'web' if uncertain"
+    }
+  ],
   "risk": "LOW|MEDIUM|HIGH|EXTREME",
   "top_sector": "sector name",
   "outlook": "1-sentence forward view tied to upcoming catalysts"
-}`;
+}
+
+NEWS RULES:
+- Return 8-12 news items. NEVER less than 5.
+- Order by severity (HIGH first), then by recency.
+- severity HIGH = market-moving (Fed decision, war escalation, major earnings beat/miss,
+  bankruptcy, surprise rate change, ≥5% index move, breaking-news ticker downgrade).
+- severity MEDIUM = ticker-specific guidance, M&A talks, analyst rating change,
+  regional economic data, central-bank speakers.
+- severity LOW = routine market commentary, scheduled report previews.
+- impacted_tickers: tickers from the watchlist that this news likely moves.
+  Empty array if no direct impact. NEVER guess broad market reaction here.
+- If a "BREAKING CONTEXT" section appears in this prompt, you MUST include those
+  headlines (already verified breaking) with HIGH severity in your news array.`;
 
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
