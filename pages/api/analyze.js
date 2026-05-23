@@ -41,7 +41,10 @@ const CORRELATION_GROUPS = {
 //   ✓ Endpoint:    generativelanguage.googleapis.com (Gemini API)
 // ─────────────────────────────────────────────────────────────────────
 const AI_PROVIDER = "gemini";  // intentional hardcoded constant
-const AI_MODEL    = "gemini-2.5-pro";
+// Google's free tier for gemini-2.5-pro is currently 0 RPD on many accounts.
+// gemini-2.5-flash has a generous free tier (~1,000+ RPD) with ~90% of Pro's quality.
+// Override via env var GEMINI_MODEL if you want to use Pro on a paid project.
+const AI_MODEL    = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
