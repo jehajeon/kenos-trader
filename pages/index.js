@@ -734,10 +734,29 @@ export default function Home() {
                       )}
                       {log[0].news?.length > 0 && (
                         <div style={{ paddingTop: s.md, marginTop: s.md, borderTop: `1px solid ${c.hairline}` }}>
-                          <Eyebrow style={{ marginBottom: s.xs }}>news</Eyebrow>
-                          {log[0].news.slice(0, 3).map((n, i) => (
-                            <div key={i} style={{ ...t.bodySM, color: c.body, padding: "3px 0" }}>· {n}</div>
-                          ))}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.xs }}>
+                            <Eyebrow>news</Eyebrow>
+                            {log[0].breaking && <MonoBadge tone="error">🚨 breaking</MonoBadge>}
+                          </div>
+                          {log[0].news.slice(0, 10).map((n, i) => {
+                            // Support both old format (string) and new format (object)
+                            const isObj = typeof n === "object" && n !== null;
+                            const headline = isObj ? n.headline : n;
+                            const sev = isObj ? n.severity : null;
+                            const tickers = isObj ? n.impacted_tickers : null;
+                            const cat = isObj ? n.category : null;
+                            const sevTone = sev === "HIGH" ? "error" : sev === "MEDIUM" ? "warning" : null;
+                            return (
+                              <div key={i} style={{ ...t.bodySM, color: c.body, padding: "5px 0", borderTop: i > 0 ? `1px solid ${c.hairline}` : "none", display: "flex", gap: s.xs, alignItems: "flex-start", flexWrap: "wrap" }}>
+                                {sev && <MonoBadge tone={sevTone || "default"}>{sev.toLowerCase()}</MonoBadge>}
+                                <span style={{ flex: "1 1 200px", minWidth: 0, color: c.ink }}>{headline}</span>
+                                {tickers?.length > 0 && (
+                                  <span style={{ ...t.captionMono, color: c.link }}>{tickers.join(" ")}</span>
+                                )}
+                                {cat && <span style={{ ...t.captionMono, color: c.mute }}>{cat}</span>}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </Card>
