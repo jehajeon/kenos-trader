@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "F=$(jq -r '.tool_input.file_path // empty'); [ -z \"$F\" ] && exit 0; case \"$F\" in /Users/jehajeon/Desktop/Claude/kenos-trader/*) cd /Users/jehajeon/Desktop/Claude/kenos-trader && git add -- \"$F\" 2>/dev/null; git diff --cached --quiet -- \"$F\" 2>/dev/null || git commit -m \"auto: update ${F##*/}\" 2>/dev/null ;; esac; true",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
