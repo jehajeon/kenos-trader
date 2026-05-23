@@ -1,0 +1,38 @@
+name: KENOS Breaking News Poll (every 30min)
+
+# Polls 4 RSS feeds for breaking news during US market hours.
+# HIGH severity triggers an off-cycle /api/auto-run analysis.
+#
+# Schedule covers both DST (UTC-4) and Standard Time (UTC-5):
+#   Market open  09:30 ET → 13:30 UTC (DST) / 14:30 UTC (Standard)
+#   Market close 16:00 ET → 20:00 UTC (DST) / 21:00 UTC (Standard)
+#   Polls run 30 min before open through 30 min after close.
+
+on:
+  schedule:
+    # Every 30 min from 13:00 UTC to 21:30 UTC, weekdays
+    # (covers 09:00–17:30 ET DST and 08:00–16:30 ET Standard)
+    - cron: '0,30 13-21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  poll-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll RSS feeds for breaking news
+        run: |
+          response=$(curl -X POST "${{ secrets.VERCEL_URL }}/api/news-poll" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            --max-time 60 \
+            --silent --show-error --write-out "\nHTTP_STATUS:%{http_code}")
+          echo "$response"
+          status=$(echo "$response" | grep -oE "HTTP_STATUS:[0-9]+" | cut -d: -f2)
+          if [ "$status" != "200" ]; then
+            echo "::error::news-poll returned HTTP $status"
+            exit 1
+          fi
+          high=$(echo "$response" | grep -oE '"high_count":[0-9]+' | cut -d: -f2)
+          if [ -n "$high" ] && [ "$high" -gt 0 ]; then
+            echo "::notice::🚨 Breaking news detected — $high HIGH-severity events triggered auto-run."
+          fi
