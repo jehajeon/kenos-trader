@@ -30,8 +30,26 @@ const CORRELATION_GROUPS = {
   "speculative":    ["RKLB","IONQ","COIN","PLTR"],
 };
 
+// ─────────────────────────────────────────────────────────────────────
+// AI PROVIDER LOCK — KENOS uses Gemini 2.5 Pro ONLY.
+// If anyone reintroduces Anthropic/Claude code by mistake, the explicit
+// references below + the GEMINI-only env var check will surface it fast.
+//   ✗ DO NOT use: process.env.ANTHROPIC_API_KEY
+//   ✗ DO NOT call: api.anthropic.com
+//   ✗ DO NOT set:  anthropic-version header or x-api-key
+//   ✓ Use only:    process.env.GEMINI_API_KEY (Google AI Studio)
+//   ✓ Endpoint:    generativelanguage.googleapis.com (Gemini API)
+// ─────────────────────────────────────────────────────────────────────
+const AI_PROVIDER = "gemini";  // intentional hardcoded constant
+const AI_MODEL    = "gemini-2.5-pro";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
+
+  // Defensive: explicit Gemini-only check.
+  if (AI_PROVIDER !== "gemini") {
+    return res.status(500).json({ error: "AI_PROVIDER must be 'gemini' — Anthropic/Claude has been removed." });
+  }
 
   const GEMINI_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_KEY) return res.status(500).json({ error: "GEMINI_API_KEY not set (get from https://aistudio.google.com)" });
