@@ -36,63 +36,49 @@ async function alpacaCall(path, method = "GET", body = null) {
   return res.json();
 }
 
+const fmtUSD0 = (n) => `$${Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const fmtUSD2 = (n) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const fmtDay  = (iso) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
 // ─────────────────────────────────────────────────────────────
 // Primitives
 // ─────────────────────────────────────────────────────────────
-function Eyebrow({ children, color = c.body }) {
-  return <div style={{ ...t.captionMono, color, marginBottom: s.sm }}>{children}</div>;
+function Eyebrow({ children, color = c.mute, style }) {
+  return <div style={{ ...t.captionMono, color, ...style }}>{children}</div>;
 }
 
-function H1({ children, style }) {
-  return <h1 style={{ ...t.displayXL, color: c.ink, margin: 0, ...style }}>{children}</h1>;
-}
-
-function H2({ children, style }) {
-  return <h2 style={{ ...t.displayLG, color: c.ink, margin: 0, ...style }}>{children}</h2>;
-}
-
-function H3({ children, style }) {
-  return <h3 style={{ ...t.displayMD, color: c.ink, margin: 0, ...style }}>{children}</h3>;
-}
-
-function Body({ children, lead, color, style }) {
-  const style0 = lead ? t.bodyLG : t.bodyMD;
-  return <p style={{ ...style0, color: color || c.body, margin: 0, ...style }}>{children}</p>;
-}
-
-function Button({ children, onClick, disabled, variant = "primary", size = "lg", title }) {
-  // Marketing CTAs are 100px pills. Nav-scale uses 6px square.
+function Button({ children, onClick, disabled, variant = "primary", size = "md", style }) {
   const isMarketing = size === "lg";
-  const heights = { sm: 32, md: 40, lg: 48 };
-  const pads = { sm: "0 14px", md: "0 18px", lg: "0 24px" };
+  const heights = { sm: 32, md: 36, lg: 44 };
+  const pads = { sm: "0 14px", md: "0 16px", lg: "0 22px" };
   const variants = {
     primary:   { bg: c.primary,    color: c.onPrimary, border: "none" },
     secondary: { bg: c.card,       color: c.ink,       border: `1px solid ${c.hairlineStrong}` },
     ghost:     { bg: "transparent", color: c.body,     border: `1px solid ${c.hairline}` },
-    danger:    { bg: "transparent", color: c.error,    border: `1px solid ${c.error}` },
   };
   const v = variants[variant] || variants.primary;
   return (
-    <button onClick={onClick} disabled={disabled} title={title}
+    <button onClick={onClick} disabled={disabled}
       style={{
         ...(isMarketing ? t.buttonLG : t.buttonMD),
         background: disabled ? c.hairline : v.bg,
         color: disabled ? c.mute : v.color,
         border: disabled ? `1px solid ${c.hairline}` : v.border,
         borderRadius: isMarketing ? rad.pill : rad.sm,
-        padding: pads[size],
-        height: heights[size],
+        padding: pads[size], height: heights[size],
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.6 : 1,
-        transition: "background 120ms, color 120ms, transform 120ms",
+        transition: "background 120ms, transform 80ms",
         boxShadow: variant === "secondary" ? shadow.level1 : "none",
+        ...style,
       }}>
       {children}
     </button>
   );
 }
 
-function Pill({ active, onClick, children, accent }) {
+function Pill({ active, onClick, children }) {
   return (
     <button onClick={onClick}
       style={{
@@ -101,7 +87,7 @@ function Pill({ active, onClick, children, accent }) {
         color: active ? c.onPrimary : c.body,
         border: `1px solid ${active ? c.primary : c.hairline}`,
         borderRadius: rad.pillSm,
-        padding: "6px 16px",
+        padding: "5px 14px",
         cursor: "pointer",
         boxShadow: active ? "none" : shadow.level1,
         transition: "background 120ms, color 120ms",
@@ -124,16 +110,6 @@ function Card({ children, padding = s.lg, elevated, featured, style }) {
   );
 }
 
-function StatTile({ eyebrow, value, sub, color, featured }) {
-  return (
-    <Card padding={s.lg} featured={featured}>
-      <div style={{ ...t.captionMono, color: featured ? "#555" : c.mute, marginBottom: s.sm }}>{eyebrow}</div>
-      <div style={{ ...t.statValue, color: color || (featured ? c.primarySurfaceText : c.ink) }}>{value}</div>
-      {sub && <div style={{ ...t.bodySM, color: featured ? "#666" : c.body, marginTop: s.xs }}>{sub}</div>}
-    </Card>
-  );
-}
-
 function MonoBadge({ children, tone = "default" }) {
   const tones = {
     default: { bg: c.canvasSoft2, fg: c.body,    bd: c.hairline },
@@ -141,43 +117,51 @@ function MonoBadge({ children, tone = "default" }) {
     error:   { bg: c.errorSoft,   fg: c.error,   bd: c.error },
     warning: { bg: c.warningSoft, fg: c.warning, bd: c.warning },
     info:    { bg: c.linkBgSoft,  fg: c.link,    bd: c.link },
-    ink:     { bg: c.primary,     fg: c.onPrimary, bd: c.primary },
   };
   const v = tones[tone] || tones.default;
   return (
     <span style={{
       ...t.captionMono, color: v.fg,
       background: v.bg, border: `1px solid ${v.bd}`,
-      padding: "3px 8px", borderRadius: rad.full,
-      display: "inline-block",
+      padding: "2px 8px", borderRadius: rad.full,
+      display: "inline-block", whiteSpace: "nowrap",
     }}>{children}</span>
   );
 }
 
-function Chart({ history, color }) {
+function SectionTitle({ children, right, style }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: s.md, ...style }}>
+      <h3 style={{ ...t.displaySM, color: c.ink, margin: 0 }}>{children}</h3>
+      {right}
+    </div>
+  );
+}
+
+function Chart({ history, color, height = 180 }) {
   if (!history || history.length < 2) {
     return (
-      <div style={{ ...t.bodySM, display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: c.mute }}>
-        Run an analysis to populate the curve.
+      <div style={{ ...t.bodySM, display: "flex", alignItems: "center", justifyContent: "center", height, color: c.mute }}>
+        Run an analysis to populate the equity curve.
       </div>
     );
   }
   const vals = history.map(h => h.v);
   const mn = Math.min(...vals) * 0.997, mx = Math.max(...vals) * 1.003, rng = mx - mn || 1;
-  const W = 600, H = 100;
+  const W = 1000, H = 200;
   const base = H - ((history[0].v - mn) / rng) * H;
   const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * W},${H - ((v - mn) / rng) * H}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height }}>
       <defs>
         <linearGradient id="cgArea" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.18" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.22" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
       <polyline points={`0,${H} ${pts} ${W},${H}`} fill="url(#cgArea)" />
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
-      <line x1="0" y1={base} x2={W} y2={base} stroke={c.hairline} strokeWidth="1" strokeDasharray="3,3" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      <line x1="0" y1={base} x2={W} y2={base} stroke={c.hairlineStrong} strokeWidth="1" strokeDasharray="3,3" />
     </svg>
   );
 }
@@ -199,6 +183,28 @@ function ScoreBar({ val, label }) {
   );
 }
 
+// Compact sidebar card with title + tightly packed key-value rows
+function SidebarCard({ title, right, children }) {
+  return (
+    <Card padding={s.md} style={{ marginBottom: s.md }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.sm }}>
+        <Eyebrow>{title}</Eyebrow>
+        {right}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+function KV({ k, v, color }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", ...t.bodySM }}>
+      <span style={{ color: c.body }}>{k}</span>
+      <span style={{ color: color || c.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{v}</span>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────
@@ -216,6 +222,7 @@ export default function Home() {
   const [nextRun,   setNextRun]   = useState(null);
   const [countdown, setCountdown] = useState("");
   const [profile,   setProfile]   = useState("BALANCED");
+  const [showOrders, setShowOrders] = useState(false);
   const autoRef = useRef(null);
 
   useEffect(() => {
@@ -234,7 +241,7 @@ export default function Home() {
     const id = setInterval(() => {
       if (!nextRun) return;
       const diff = nextRun - Date.now();
-      if (diff <= 0) { setCountdown("running soon"); return; }
+      if (diff <= 0) { setCountdown("soon"); return; }
       const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), sec = Math.floor((diff % 60000) / 1000);
       setCountdown(`${h > 0 ? h + "h " : ""}${m}m ${sec}s`);
     }, 1000);
@@ -245,7 +252,7 @@ export default function Home() {
     try {
       const acc = await alpacaCall("/v2/account");
       const pos = await alpacaCall("/v2/positions");
-      const ord = await alpacaCall("/v2/orders?status=all&limit=20");
+      const ord = await alpacaCall("/v2/orders?status=all&limit=50");
       setAccount(acc); setPositions(pos); setOrders(ord);
       return { acc, pos };
     } catch (e) { setErr(e.message); return null; }
@@ -303,12 +310,12 @@ export default function Home() {
           forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty, reasoning: `Stop-loss ${(pnlPct*100).toFixed(1)}%.`, conf: 0.99, forced: "STOP_LOSS" });
         } else if (pnlPct >= risk.TAKE_PROFIT_PCT) {
           const trim = Math.max(1, Math.floor(qty * risk.TAKE_PROFIT_TRIM_PCT));
-          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty: trim, reasoning: `Take-profit +${(pnlPct*100).toFixed(1)}% (${(risk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)}% trim).`, conf: 0.99, forced: "TAKE_PROFIT" });
+          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty: trim, reasoning: `Take-profit +${(pnlPct*100).toFixed(1)}%.`, conf: 0.99, forced: "TAKE_PROFIT" });
         } else if (weight > risk.POSITION_CAP_PCT) {
           const targetMV = portfolioValue * risk.POSITION_CAP_PCT;
           const excessMV = (cur * qty) - targetMV;
           const trim = Math.max(1, Math.ceil(excessMV / cur));
-          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty: trim, reasoning: `Rebalance ${(weight*100).toFixed(1)}% → ${(risk.POSITION_CAP_PCT*100).toFixed(0)}%.`, conf: 0.99, forced: "POSITION_CAP" });
+          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty: trim, reasoning: `Rebalance ${(weight*100).toFixed(1)}%.`, conf: 0.99, forced: "POSITION_CAP" });
         }
       });
 
@@ -437,31 +444,42 @@ export default function Home() {
 
   // Derived
   const pv = account ? Number(account.portfolio_value) : 0;
+  const lastEquity = account ? Number(account.last_equity || pv) : pv;
   const ini = history.length ? history[0].v : pv;
   const pnlD = pv - ini, pnlP = ini ? (pnlD / ini) * 100 : 0, up = pnlD >= 0;
+  const dailyD = pv - lastEquity, dailyP = lastEquity ? (dailyD / lastEquity) * 100 : 0, dayUp = dailyD >= 0;
   const accentColor = up ? c.success : c.error;
   const days = history.length ? Math.floor((Date.now() - new Date(history[0].ts)) / 86400000) : 0;
 
   const currentRisk = pv > 0 ? resolveRisk(profile, pv) : null;
   const currentTier = pv > 0 ? getCapitalTier(pv) : null;
   const currentDrawdowns = account ? computeDrawdowns({
-    currentEquity: pv,
-    lastEquity:    Number(account.last_equity || pv),
-    history,
+    currentEquity: pv, lastEquity, history,
   }) : null;
   const currentKillSwitch = currentDrawdowns ? evaluateKillSwitch(currentDrawdowns) : null;
 
   const sells = log.flatMap(e => e.executed || []).filter(e => e.action === "SELL");
   const winRate = sells.length ? ((sells.filter(e => (e.pnl || 0) > 0).length / sells.length) * 100).toFixed(0) : null;
 
-  // Section padding helper
-  const sectionPad = `${s["4xl"]}px ${s.lg}px`;
+  // Build unified activity feed from executed orders + skipped (last 20 events)
+  const activityFeed = log.flatMap(entry =>
+    (entry.executed || []).map(e => ({ ...e, ts: entry.ts, kind: "executed" }))
+      .concat((entry.skipped || []).map(sk => ({ ...sk, ts: entry.ts, kind: "skipped" })))
+  ).slice(0, 20);
+
+  // Sort positions by P&L % descending (best performers on top)
+  const sortedPositions = [...positions].sort((a, b) => {
+    const ap = (Number(a.current_price) - Number(a.avg_entry_price)) / Number(a.avg_entry_price);
+    const bp = (Number(b.current_price) - Number(b.avg_entry_price)) / Number(b.avg_entry_price);
+    return bp - ap;
+  });
+
   const containerStyle = { maxWidth: 1400, margin: "0 auto", padding: `0 ${s.lg}px` };
 
   return (
     <>
       <Head>
-        <title>KENOS — AI ensemble paper trading.</title>
+        <title>KENOS — Paper trading dashboard.</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="description" content="κένωσις — AI ensemble paper trading on Alpaca." />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -485,83 +503,132 @@ export default function Home() {
         ::-webkit-scrollbar-thumb { background: ${c.hairlineStrong}; border-radius: 3px; }
         @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
         @keyframes shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
+        .row-hover:hover { background: ${c.canvasSoft2}; }
+        @media (max-width: 900px) {
+          .main-grid { grid-template-columns: 1fr !important; }
+        }
       `}</style>
 
       <div style={{ minHeight: "100vh", background: c.canvasSoft, color: c.ink }}>
 
         {/* ── NAV ───────────────────────────────────── */}
         <nav style={{
-          height: 64,
-          background: c.canvasSoft,
+          height: 60,
+          background: c.canvasSoft + "ee",
           borderBottom: `1px solid ${c.hairline}`,
           position: "sticky", top: 0, zIndex: 50,
-          backdropFilter: "blur(8px)",
+          backdropFilter: "blur(12px)",
         }}>
           <div style={{ ...containerStyle, height: "100%", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: s.lg }}>
-              <div style={{ display: "flex", alignItems: "center", gap: s.sm }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: rad.sm,
-                  background: meshGradient.backdrop, backgroundColor: c.canvas,
-                }} />
-                <span style={{ ...t.bodyMDStrong, color: c.ink, letterSpacing: "-0.4px" }}>
-                  KENOS
-                </span>
-                <MonoBadge>paper</MonoBadge>
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: s.sm }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: rad.sm,
+                background: meshGradient.backdrop, backgroundColor: c.canvas,
+              }} />
+              <span style={{ ...t.bodyMDStrong, color: c.ink, letterSpacing: "-0.4px" }}>KENOS</span>
+              <MonoBadge>paper</MonoBadge>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: s.md }}>
               <span style={{ ...t.captionMono, color: c.mute }}>day {days + 1}</span>
               {winRate && <span style={{ ...t.captionMono, color: Number(winRate) > 50 ? c.success : c.error }}>win {winRate}%</span>}
-              {nextRun && <span style={{ ...t.captionMono, color: c.warning }}>next {countdown}</span>}
+              {nextRun && <span style={{ ...t.captionMono, color: c.warning }}>{countdown}</span>}
               <Button variant="secondary" size="sm" onClick={loadAccount}>Refresh</Button>
-              <Button variant="primary" size="sm" onClick={runAnalysis} disabled={loading}>
+              <Button variant="primary" size="md" onClick={runAnalysis} disabled={loading}>
                 {loading ? "Running…" : "Run analysis"}
               </Button>
             </div>
           </div>
         </nav>
 
-        {/* ── HERO BAND with mesh gradient ────────── */}
-        {account && (
-          <section style={{
-            position: "relative", overflow: "hidden",
-            background: c.canvasSoft,
-            borderBottom: `1px solid ${c.hairline}`,
+        {/* ── KILL SWITCH BANNER (only when not normal) ─ */}
+        {currentKillSwitch && currentKillSwitch.level !== "NORMAL" && (
+          <div style={{
+            background: currentKillSwitch.severity >= 2 ? c.errorSoft : c.warningSoft,
+            borderBottom: `1px solid ${currentKillSwitch.severity >= 2 ? c.error : c.warning}`,
           }}>
-            {/* Mesh gradient backdrop — the only decoration */}
+            <div style={{ ...containerStyle, padding: `${s.sm}px ${s.lg}px`, display: "flex", alignItems: "center", gap: s.sm, flexWrap: "wrap" }}>
+              <MonoBadge tone={currentKillSwitch.severity >= 2 ? "error" : "warning"}>
+                {currentKillSwitch.level.replace("_", " ").toLowerCase()}
+              </MonoBadge>
+              <span style={{ ...t.bodySM, color: currentKillSwitch.severity >= 2 ? c.error : c.warning }}>
+                {currentKillSwitch.reason}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── HERO: portfolio + equity + controls ───── */}
+        {account && (
+          <section style={{ position: "relative", overflow: "hidden", borderBottom: `1px solid ${c.hairline}` }}>
             <div style={{
               position: "absolute", inset: 0,
               backgroundImage: meshGradient.backdrop,
               backgroundColor: c.canvasSoft,
-              opacity: 0.65,
-              pointerEvents: "none",
+              opacity: 0.55, pointerEvents: "none",
             }} />
-            <div style={{ ...containerStyle, position: "relative", padding: `${s["5xl"]}px ${s.lg}px ${s["4xl"]}px` }}>
-              <Eyebrow>portfolio · alpaca paper</Eyebrow>
-              <H1 style={{ ...t.statValueXL }}>
-                ${Number(pv).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </H1>
-              <div style={{ display: "flex", alignItems: "baseline", gap: s.md, marginTop: s.md, flexWrap: "wrap" }}>
-                <span style={{ ...t.displaySM, color: accentColor }}>
-                  {up ? "+" : "−"}${Math.abs(pnlD).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span style={{ ...t.displaySM, color: accentColor }}>
-                  {up ? "▲" : "▼"} {Math.abs(pnlP).toFixed(2)}%
-                </span>
-                <Body color={c.body}>since inception.</Body>
+            <div style={{ ...containerStyle, position: "relative", padding: `${s.xl}px ${s.lg}px ${s.lg}px` }}>
+              {/* Portfolio value + day change */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: s.md, flexWrap: "wrap", gap: s.md }}>
+                <div>
+                  <Eyebrow style={{ marginBottom: s.xs }}>portfolio</Eyebrow>
+                  <div style={{ ...t.statValueXL, color: c.ink }}>
+                    {fmtUSD2(pv)}
+                  </div>
+                  <div style={{ display: "flex", gap: s.md, marginTop: s.xs, alignItems: "baseline", flexWrap: "wrap" }}>
+                    {Math.abs(dailyD) > 0.01 && (
+                      <span style={{ ...t.bodyMDStrong, color: dayUp ? c.success : c.error, fontVariantNumeric: "tabular-nums" }}>
+                        {dayUp ? "▲" : "▼"} {fmtUSD2(Math.abs(dailyD))} ({dayUp ? "+" : "−"}{Math.abs(dailyP).toFixed(2)}%) today
+                      </span>
+                    )}
+                    <span style={{ ...t.bodySM, color: up ? c.success : c.error, fontVariantNumeric: "tabular-nums" }}>
+                      {up ? "+" : "−"}{fmtUSD2(Math.abs(pnlD))} ({up ? "+" : "−"}{Math.abs(pnlP).toFixed(2)}%) all time
+                    </span>
+                  </div>
+                </div>
+                {/* Compact KPIs to the right */}
+                <div style={{ display: "flex", gap: s.lg, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ textAlign: "right" }}>
+                    <Eyebrow style={{ marginBottom: 2 }}>cash</Eyebrow>
+                    <div style={{ ...t.statValueSm, color: c.ink }}>{fmtUSD0(account.cash)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <Eyebrow style={{ marginBottom: 2 }}>buying power</Eyebrow>
+                    <div style={{ ...t.statValueSm, color: c.ink }}>{fmtUSD0(account.buying_power)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <Eyebrow style={{ marginBottom: 2 }}>positions</Eyebrow>
+                    <div style={{ ...t.statValueSm, color: c.ink }}>{positions.length}</div>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: s.sm, marginTop: s["2xl"], flexWrap: "wrap" }}>
-                <Button variant="primary" size="lg" onClick={runAnalysis} disabled={loading}>
-                  {loading ? "Running…" : "Run analysis →"}
-                </Button>
-                <Button variant="secondary" size="lg" onClick={loadAccount}>
-                  Refresh account
-                </Button>
+
+              {/* Equity chart */}
+              <div style={{ marginTop: s.md }}>
+                <Chart history={history} color={accentColor} height={200} />
+              </div>
+
+              {/* Controls row */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: s.md, flexWrap: "wrap", gap: s.md }}>
+                <div style={{ display: "flex", alignItems: "center", gap: s.sm, flexWrap: "wrap" }}>
+                  <Eyebrow>intensity</Eyebrow>
+                  {Object.entries(PROFILES).map(([key, p]) => (
+                    <Pill key={key} active={profile === key} onClick={() => setProfile(key)}>
+                      {key.toLowerCase()}
+                    </Pill>
+                  ))}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: s.sm, flexWrap: "wrap" }}>
+                  <Eyebrow>auto</Eyebrow>
+                  {[null, 4, 8, 24].map(h => (
+                    <Pill key={String(h)} active={autoHours === h} onClick={() => setAutoHours(h === autoHours ? null : h)}>
+                      {h === null ? "off" : `${h}h`}
+                    </Pill>
+                  ))}
+                </div>
               </div>
 
               {loading && (
-                <div style={{ marginTop: s.lg, display: "flex", alignItems: "center", gap: s.sm }}>
+                <div style={{ marginTop: s.md, display: "flex", alignItems: "center", gap: s.sm }}>
                   <span style={{ width: 6, height: 6, background: c.ink, borderRadius: rad.full, animation: "pulse 1s infinite" }} />
                   <span style={{ ...t.captionMono, color: c.body }}>{step}</span>
                 </div>
@@ -575,293 +642,269 @@ export default function Home() {
           </section>
         )}
 
-        {/* ── PROFILE + AUTO ROW ──────────────────── */}
-        <section style={{ background: c.canvasSoft2, borderBottom: `1px solid ${c.hairline}` }}>
-          <div style={{ ...containerStyle, padding: `${s.lg}px ${s.lg}px`, display: "flex", justifyContent: "space-between", gap: s.lg, flexWrap: "wrap", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: s.md, flexWrap: "wrap" }}>
-              <span style={{ ...t.captionMono, color: c.mute }}>intensity</span>
-              <div style={{ display: "flex", gap: s.xs }}>
-                {Object.entries(PROFILES).map(([key, p]) => (
-                  <Pill key={key} active={profile === key} onClick={() => setProfile(key)}>
-                    {key.toLowerCase()}
-                  </Pill>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: s.md, flexWrap: "wrap" }}>
-              <span style={{ ...t.captionMono, color: c.mute }}>auto</span>
-              <div style={{ display: "flex", gap: s.xs }}>
-                {[null, 4, 8, 24].map(h => (
-                  <Pill key={String(h)} active={autoHours === h} onClick={() => setAutoHours(h === autoHours ? null : h)}>
-                    {h === null ? "off" : `${h}h`}
-                  </Pill>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── ACCOUNT 4-UP ─────────────────────────── */}
-        {account && (
-          <section style={{ padding: sectionPad }}>
-            <div style={containerStyle}>
-              <Eyebrow>account</Eyebrow>
-              <H2>Capital snapshot.</H2>
-              <Body color={c.body} style={{ marginTop: s.sm, marginBottom: s["2xl"] }} lead>
-                Live account state from Alpaca, updated each analysis cycle.
-              </Body>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: s.md }}>
-                <StatTile eyebrow="portfolio value" value={`$${Number(pv).toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
-                <StatTile eyebrow="cash" value={`$${Number(account.cash).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-                  sub={`${((Number(account.cash) / pv) * 100).toFixed(1)}% of portfolio.`} />
-                <StatTile eyebrow="positions" value={positions.length} sub={`${orders.filter(o => o.status === "filled").length} filled orders.`} />
-                <StatTile eyebrow="buying power" value={`$${Number(account.buying_power).toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ── RISK + KILL SWITCH ─────────────────── */}
-        {currentRisk && currentKillSwitch && (
-          <section style={{ padding: sectionPad, borderTop: `1px solid ${c.hairline}` }}>
-            <div style={containerStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: s["2xl"], flexWrap: "wrap", gap: s.md }}>
-                <div>
-                  <Eyebrow>capital management</Eyebrow>
-                  <H2>{`${profile.charAt(0) + profile.slice(1).toLowerCase()} · ${(currentTier?.label || "").replace(/^[^A-Za-z]+\s*/, "").toLowerCase()}.`}</H2>
-                  <Body color={c.body} style={{ marginTop: s.sm }}>
-                    Effective risk limits derived from your selected profile and current portfolio size.
-                  </Body>
-                </div>
-                {currentKillSwitch.level !== "NORMAL" && (
-                  <MonoBadge tone={currentKillSwitch.severity >= 2 ? "error" : "warning"}>
-                    {currentKillSwitch.level.replace("_", " ").toLowerCase()}
-                  </MonoBadge>
-                )}
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: s.md, marginBottom: s["2xl"] }}>
-                <StatTile eyebrow="buy conf ≥" value={currentRisk.BUY_CONF_MIN.toFixed(2)} sub={`panic ${currentRisk.PANIC_BUY_CONF_MIN.toFixed(2)}.`} />
-                <StatTile eyebrow="stop-loss"  value={`${(currentRisk.STOP_LOSS_PCT*100).toFixed(0)}%`}  sub="full exit." color={c.error} />
-                <StatTile eyebrow="take-profit" value={`+${(currentRisk.TAKE_PROFIT_PCT*100).toFixed(0)}%`} sub={`${(currentRisk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)}% trim.`} color={c.success} />
-                <StatTile eyebrow="position cap" value={`${(currentRisk.POSITION_CAP_PCT*100).toFixed(0)}%`} sub={`≈$${(pv*currentRisk.POSITION_CAP_PCT).toLocaleString("en-US",{maximumFractionDigits:0})}.`} />
-                <StatTile eyebrow="sector cap"   value={`${(currentRisk.SECTOR_CAP_PCT*100).toFixed(0)}%`} sub={`group ${(currentRisk.CORR_GROUP_CAP_PCT*100).toFixed(0)}%.`} />
-                <StatTile eyebrow="cash floor ≥" value={`${(currentRisk.CASH_FLOOR_PCT*100).toFixed(0)}%`} sub={`≈$${(pv*currentRisk.CASH_FLOOR_PCT).toLocaleString("en-US",{maximumFractionDigits:0})}.`} />
-                <StatTile eyebrow="max positions" value={currentRisk.MAX_POSITIONS} sub={`min trade $${currentRisk.MIN_DOLLAR_PER_TRADE}.`} />
-              </div>
-
-              <Eyebrow>drawdown monitor</Eyebrow>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: s.md }}>
-                {[
-                  ["daily p&l",   currentDrawdowns.daily,   KILL_SWITCH_LIMITS.DAILY_LOSS_HALT],
-                  ["weekly p&l",  currentDrawdowns.weekly,  KILL_SWITCH_LIMITS.WEEKLY_LOSS_HALT],
-                  ["monthly p&l", currentDrawdowns.monthly, KILL_SWITCH_LIMITS.MONTHLY_LOSS_HALT],
-                ].map(([label, val, lim], i) => {
-                  const breached = val <= lim;
-                  const col = breached ? c.error : val < 0 ? c.warning : c.success;
-                  return (
-                    <StatTile key={i}
-                      featured={breached}
-                      eyebrow={label}
-                      value={`${val > 0 ? "+" : ""}${(val * 100).toFixed(2)}%`}
-                      sub={`halt at ${(lim*100).toFixed(0)}%.`}
-                      color={col}
-                    />
-                  );
-                })}
-              </div>
-
-              {currentKillSwitch.reason && (
-                <div style={{ marginTop: s.lg, padding: s.lg, background: c.errorSoft, border: `1px solid ${c.error}`, borderRadius: rad.md }}>
-                  <Eyebrow color={c.error}>kill switch active</Eyebrow>
-                  <Body color={c.error}>{currentKillSwitch.reason}</Body>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* ── MACRO REGIME ───────────────────────── */}
-        {log[0]?.regime && (
-          <section style={{ padding: sectionPad, borderTop: `1px solid ${c.hairline}`, background: c.canvas }}>
-            <div style={containerStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: s["2xl"], flexWrap: "wrap", gap: s.md }}>
-                <div>
-                  <Eyebrow>macro</Eyebrow>
-                  <H2 style={{ color: c.ink }}>Regime.</H2>
-                  <Body color={c.body} style={{ marginTop: s.sm }}>
-                    Real-time risk regime — VIX, yields, FX, oil, gold, BTC, FOMC.
-                  </Body>
-                </div>
-                {log[0].regime.overall_risk_regime && (
-                  <MonoBadge tone={log[0].regime.overall_risk_regime === "panic" ? "error" : log[0].regime.overall_risk_regime === "risk_on" ? "success" : "warning"}>
-                    {log[0].regime.overall_risk_regime.replace("_", " ")}
-                  </MonoBadge>
-                )}
-              </div>
-              {(() => {
-                const g = log[0].regime;
-                const items = [
-                  ["vix", g.vix?.toFixed(1), g.vix_state, g.vix > 30 ? c.error : g.vix > 20 ? c.warning : c.success],
-                  ["us 10y", `${g.us10y?.toFixed(2)}%`, `2y ${g.us2y?.toFixed(2)}%`, c.ink],
-                  ["10y−2y", `${g.yield_curve_bps}bps`, g.yield_curve_bps < 0 ? "inverted" : "normal", g.yield_curve_bps < 0 ? c.error : c.success],
-                  ["dxy", g.dxy?.toFixed(2), g.dxy_trend, c.ink],
-                  ["wti", `$${g.wti?.toFixed(2)}`, `5d ${g.wti_5d_pct > 0 ? "+" : ""}${g.wti_5d_pct?.toFixed(1)}%`, c.ink],
-                  ["btc", `$${Math.round(g.btc || 0).toLocaleString()}`, "spot", c.ink],
-                  ["gold", `$${Math.round(g.gold || 0).toLocaleString()}`, "spot", c.ink],
-                  ["fomc", g.next_fomc_date || "—", g.fomc_within_2d ? "within 2d" : "clear", g.fomc_within_2d ? c.error : c.mute],
-                  ["credit", g.credit_spreads || "—", "spreads", g.credit_spreads === "widening" ? c.error : c.success],
-                ];
-                return (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: s.md }}>
-                    {items.map(([label, val, sub, col], i) => (
-                      <Card key={i} padding={s.md}>
-                        <div style={{ ...t.captionMono, color: c.mute, marginBottom: 6 }}>{label}</div>
-                        <div style={{ ...t.statValueSm, color: col }}>{val || "—"}</div>
-                        {sub && <div style={{ ...t.bodySM, color: c.body, marginTop: 2 }}>{sub}</div>}
-                      </Card>
-                    ))}
-                  </div>
-                );
-              })()}
-              {log[0].portfolio_health?.correlation_warnings?.length > 0 && (
-                <div style={{ marginTop: s.lg, padding: s.md, background: c.warningSoft, border: `1px solid ${c.warning}`, borderRadius: rad.md, ...t.bodySM, color: c.warning }}>
-                  Correlation warning — {log[0].portfolio_health.correlation_warnings.join(" · ")}
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* ── EQUITY + AI READ ───────────────────── */}
-        {(history.length > 0 || log[0]) && (
-          <section style={{ padding: sectionPad, borderTop: `1px solid ${c.hairline}` }}>
-            <div style={containerStyle}>
-              <Eyebrow>performance</Eyebrow>
-              <H2>Trend and outlook.</H2>
-              <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: s.lg, marginTop: s["2xl"] }}>
-                <Card padding={s.lg} style={{ minHeight: 240 }}>
-                  <Eyebrow>equity curve</Eyebrow>
-                  <div style={{ height: 160 }}><Chart history={history} color={accentColor} /></div>
-                </Card>
-                <Card padding={s.lg}>
-                  <Eyebrow>ai market read</Eyebrow>
-                  <Body color={c.ink} style={{ marginBottom: s.md }} lead>
-                    {log[0]?.market || "Run an analysis to populate the market read."}
-                  </Body>
-                  {log[0]?.outlook && (
-                    <>
-                      <Eyebrow color={c.mute}>outlook</Eyebrow>
-                      <Body color={c.body}>{log[0].outlook}</Body>
-                    </>
-                  )}
-                </Card>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ── POSITIONS ──────────────────────────── */}
-        <section style={{ padding: sectionPad, borderTop: `1px solid ${c.hairline}` }}>
+        {/* ── MAIN 2-COL GRID ───────────────────────── */}
+        <section style={{ padding: `${s.xl}px ${s.lg}px` }}>
           <div style={containerStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: s["2xl"], flexWrap: "wrap", gap: s.md }}>
-              <div>
-                <Eyebrow>holdings</Eyebrow>
-                <H2>Positions.</H2>
-              </div>
-              <MonoBadge>{positions.length} open</MonoBadge>
-            </div>
-            {positions.length === 0 ? (
-              <Card padding={s["2xl"]} style={{ textAlign: "center" }}>
-                <Body color={c.mute}>No open positions — KENOS is scanning for opportunities.</Body>
-              </Card>
-            ) : (
-              <Card padding={0}>
-                <div style={{ display: "grid", gridTemplateColumns: "110px 80px 110px 110px 130px 1fr", gap: s.md, padding: `${s.sm}px ${s.lg}px`, borderBottom: `1px solid ${c.hairline}`, background: c.canvasSoft2 }}>
-                  {["ticker","qty","avg","current","p&l","sector"].map((h, i) => (
-                    <div key={i} style={{ ...t.captionMono, color: c.mute }}>{h}</div>
-                  ))}
-                </div>
-                {positions.map(pos => {
-                  const cost = Number(pos.avg_entry_price), cur = Number(pos.current_price), qty = Number(pos.qty);
-                  const pd = (cur - cost) * qty, pp = ((cur - cost) / cost) * 100, pu = pd >= 0;
-                  return (
-                    <div key={pos.symbol} style={{ display: "grid", gridTemplateColumns: "110px 80px 110px 110px 130px 1fr", gap: s.md, padding: `${s.md}px ${s.lg}px`, borderBottom: `1px solid ${c.hairline}`, alignItems: "center" }}>
-                      <div style={{ ...t.bodyMDStrong, color: c.ink }}>{pos.symbol}</div>
-                      <div style={{ ...t.bodyMD, color: c.body, fontVariantNumeric: "tabular-nums" }}>{qty}</div>
-                      <div style={{ ...t.bodyMD, color: c.mute, fontVariantNumeric: "tabular-nums" }}>${cost.toFixed(2)}</div>
-                      <div style={{ ...t.bodyMD, color: c.ink, fontVariantNumeric: "tabular-nums" }}>${cur.toFixed(2)}</div>
-                      <div style={{ fontVariantNumeric: "tabular-nums" }}>
-                        <div style={{ ...t.bodyMDStrong, color: pu ? c.success : c.error }}>{pu ? "+" : ""}${pd.toFixed(2)}</div>
-                        <div style={{ ...t.caption, color: pu ? c.success : c.error }}>{pu ? "+" : ""}{pp.toFixed(2)}%</div>
-                      </div>
-                      <div style={{ ...t.captionMono, color: c.body }}>{TICKER_SECTOR[pos.symbol] || "other"}</div>
+            <div className="main-grid" style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) 340px",
+              gap: s.lg,
+            }}>
+
+              {/* ─── LEFT MAIN ─── */}
+              <div style={{ minWidth: 0 }}>
+
+                {/* HOLDINGS */}
+                <SectionTitle right={<MonoBadge>{positions.length} open</MonoBadge>}>Holdings</SectionTitle>
+                {positions.length === 0 ? (
+                  <Card padding={s["2xl"]} style={{ textAlign: "center", marginBottom: s.xl }}>
+                    <span style={{ ...t.bodyMD, color: c.mute }}>No open positions yet — KENOS is scanning.</span>
+                  </Card>
+                ) : (
+                  <Card padding={0} style={{ marginBottom: s.xl, overflow: "hidden" }}>
+                    {/* Column headers */}
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 80px 100px 100px 130px 80px",
+                      gap: s.md, padding: `${s.sm}px ${s.lg}px`,
+                      background: c.canvasSoft2, borderBottom: `1px solid ${c.hairline}`,
+                    }}>
+                      {["ticker", "qty", "avg", "current", "p&l", "sector"].map((h, i) => (
+                        <div key={i} style={{ ...t.captionMono, color: c.mute, textAlign: i >= 1 && i <= 4 ? "right" : "left" }}>{h}</div>
+                      ))}
                     </div>
-                  );
-                })}
-              </Card>
-            )}
+                    {sortedPositions.map(pos => {
+                      const cost = Number(pos.avg_entry_price), cur = Number(pos.current_price), qty = Number(pos.qty);
+                      const pd = (cur - cost) * qty, pp = ((cur - cost) / cost) * 100, pu = pd >= 0;
+                      return (
+                        <div key={pos.symbol} className="row-hover" style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 80px 100px 100px 130px 80px",
+                          gap: s.md, padding: `${s.md}px ${s.lg}px`,
+                          borderBottom: `1px solid ${c.hairline}`, alignItems: "center",
+                          transition: "background 100ms",
+                        }}>
+                          <div>
+                            <div style={{ ...t.bodyMDStrong, color: c.ink }}>{pos.symbol}</div>
+                            <div style={{ ...t.caption, color: c.mute, marginTop: 2 }}>
+                              {fmtUSD2(cur * qty)} value
+                            </div>
+                          </div>
+                          <div style={{ ...t.bodyMD, color: c.body, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{qty}</div>
+                          <div style={{ ...t.bodyMD, color: c.mute, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>${cost.toFixed(2)}</div>
+                          <div style={{ ...t.bodyMD, color: c.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>${cur.toFixed(2)}</div>
+                          <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                            <div style={{ ...t.bodyMDStrong, color: pu ? c.success : c.error }}>{pu ? "+" : "−"}${Math.abs(pd).toFixed(2)}</div>
+                            <div style={{ ...t.caption, color: pu ? c.success : c.error, marginTop: 2 }}>{pu ? "+" : "−"}{Math.abs(pp).toFixed(2)}%</div>
+                          </div>
+                          <div style={{ ...t.captionMono, color: c.body }}>{TICKER_SECTOR[pos.symbol] || "other"}</div>
+                        </div>
+                      );
+                    })}
+                  </Card>
+                )}
+
+                {/* AI MARKET READ */}
+                {log[0] && (
+                  <>
+                    <SectionTitle
+                      right={log[0].regime?.overall_risk_regime && (
+                        <MonoBadge tone={log[0].regime.overall_risk_regime === "panic" ? "error" : log[0].regime.overall_risk_regime === "risk_on" ? "success" : "warning"}>
+                          {log[0].regime.overall_risk_regime.replace("_", " ")}
+                        </MonoBadge>
+                      )}
+                    >AI market read</SectionTitle>
+                    <Card padding={s.lg} style={{ marginBottom: s.xl }}>
+                      <p style={{ ...t.bodyLG, color: c.ink, margin: 0, marginBottom: log[0].outlook ? s.md : 0 }}>
+                        {log[0].market || "Run an analysis to see KENOS's market read."}
+                      </p>
+                      {log[0].outlook && (
+                        <div style={{ paddingTop: s.md, borderTop: `1px solid ${c.hairline}` }}>
+                          <Eyebrow style={{ marginBottom: s.xs }}>outlook</Eyebrow>
+                          <p style={{ ...t.bodyMD, color: c.body, margin: 0 }}>{log[0].outlook}</p>
+                        </div>
+                      )}
+                      {log[0].news?.length > 0 && (
+                        <div style={{ paddingTop: s.md, marginTop: s.md, borderTop: `1px solid ${c.hairline}` }}>
+                          <Eyebrow style={{ marginBottom: s.xs }}>news</Eyebrow>
+                          {log[0].news.slice(0, 3).map((n, i) => (
+                            <div key={i} style={{ ...t.bodySM, color: c.body, padding: "3px 0" }}>· {n}</div>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  </>
+                )}
+
+                {/* ACTIVITY FEED */}
+                {activityFeed.length > 0 && (
+                  <>
+                    <SectionTitle right={<MonoBadge>{activityFeed.length} recent</MonoBadge>}>Activity</SectionTitle>
+                    <Card padding={0} style={{ marginBottom: s.xl, overflow: "hidden" }}>
+                      {activityFeed.map((act, i) => {
+                        const isExec = act.kind === "executed";
+                        return (
+                          <div key={i} className="row-hover" style={{
+                            display: "grid",
+                            gridTemplateColumns: "80px 80px 1fr 100px",
+                            gap: s.md, padding: `${s.sm}px ${s.lg}px`,
+                            borderBottom: i < activityFeed.length - 1 ? `1px solid ${c.hairline}` : "none",
+                            alignItems: "center",
+                          }}>
+                            <span style={{ ...t.captionMono, color: c.mute }}>{fmtTime(act.ts)}</span>
+                            {isExec ? (
+                              <MonoBadge tone={act.action === "BUY" ? "success" : "error"}>{act.action.toLowerCase()}</MonoBadge>
+                            ) : (
+                              <MonoBadge tone="warning">skip</MonoBadge>
+                            )}
+                            <div style={{ minWidth: 0 }}>
+                              <span style={{ ...t.bodySMStrong, color: c.ink }}>{act.ticker}</span>
+                              {isExec && <span style={{ ...t.bodySM, color: c.body, marginLeft: s.sm }}>
+                                {act.qty} @ ${Number(act.price || 0).toFixed(2)}
+                                {act.forced && <span style={{ color: c.warning, marginLeft: s.xs }}>· {act.forced.toLowerCase().replace("_", " ")}</span>}
+                              </span>}
+                              {!isExec && <span style={{ ...t.bodySM, color: c.mute, marginLeft: s.sm }}>{act.reason}</span>}
+                            </div>
+                            <span style={{ ...t.captionMono, color: c.mute, textAlign: "right" }}>
+                              {isExec && act.pnl !== undefined && (
+                                <span style={{ color: act.pnl > 0 ? c.success : c.error }}>
+                                  {act.pnl > 0 ? "+" : ""}${act.pnl.toFixed(2)}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </Card>
+                  </>
+                )}
+
+              </div>
+
+              {/* ─── RIGHT SIDEBAR ─── */}
+              <aside style={{ minWidth: 0 }}>
+
+                {/* Risk card */}
+                {currentRisk && (
+                  <SidebarCard
+                    title="risk profile"
+                    right={<MonoBadge>{currentTier?.label?.replace(/^[^A-Za-z]+\s*/, "").toLowerCase()}</MonoBadge>}
+                  >
+                    <div style={{ ...t.bodyMDStrong, color: c.ink, marginBottom: s.sm }}>
+                      {profile.charAt(0) + profile.slice(1).toLowerCase()}
+                    </div>
+                    <KV k="buy conf ≥" v={currentRisk.BUY_CONF_MIN.toFixed(2)} />
+                    <KV k="stop-loss" v={`${(currentRisk.STOP_LOSS_PCT*100).toFixed(0)}%`} color={c.error} />
+                    <KV k="take-profit" v={`+${(currentRisk.TAKE_PROFIT_PCT*100).toFixed(0)}%`} color={c.success} />
+                    <KV k="position cap" v={`${(currentRisk.POSITION_CAP_PCT*100).toFixed(0)}%`} />
+                    <KV k="cash floor" v={`${(currentRisk.CASH_FLOOR_PCT*100).toFixed(0)}%`} />
+                    <KV k="max positions" v={currentRisk.MAX_POSITIONS} />
+                  </SidebarCard>
+                )}
+
+                {/* Drawdown card */}
+                {currentDrawdowns && (
+                  <SidebarCard
+                    title="drawdown"
+                    right={currentKillSwitch?.level !== "NORMAL" && (
+                      <MonoBadge tone={currentKillSwitch.severity >= 2 ? "error" : "warning"}>{currentKillSwitch.level.replace("_", " ").toLowerCase()}</MonoBadge>
+                    )}
+                  >
+                    {[
+                      ["daily",   currentDrawdowns.daily,   KILL_SWITCH_LIMITS.DAILY_LOSS_HALT],
+                      ["weekly",  currentDrawdowns.weekly,  KILL_SWITCH_LIMITS.WEEKLY_LOSS_HALT],
+                      ["monthly", currentDrawdowns.monthly, KILL_SWITCH_LIMITS.MONTHLY_LOSS_HALT],
+                    ].map(([label, val, lim], i) => {
+                      const breached = val <= lim;
+                      const col = breached ? c.error : val < 0 ? c.warning : c.success;
+                      return (
+                        <KV key={i}
+                          k={label}
+                          v={`${val > 0 ? "+" : ""}${(val * 100).toFixed(2)}%`}
+                          color={col}
+                        />
+                      );
+                    })}
+                  </SidebarCard>
+                )}
+
+                {/* Macro card */}
+                {log[0]?.regime && (
+                  <SidebarCard
+                    title="macro regime"
+                    right={log[0].regime.fomc_within_2d && <MonoBadge tone="error">fomc 2d</MonoBadge>}
+                  >
+                    {(() => {
+                      const g = log[0].regime;
+                      const items = [
+                        ["vix", `${g.vix?.toFixed(1)} · ${g.vix_state || "—"}`, g.vix > 30 ? c.error : g.vix > 20 ? c.warning : c.success],
+                        ["10y / 2y", `${g.us10y?.toFixed(2)}% / ${g.us2y?.toFixed(2)}%`, null],
+                        ["curve", `${g.yield_curve_bps}bps · ${g.yield_curve_bps < 0 ? "inverted" : "normal"}`, g.yield_curve_bps < 0 ? c.error : c.success],
+                        ["dxy", g.dxy?.toFixed(2), null],
+                        ["wti", `$${g.wti?.toFixed(2)}`, null],
+                        ["btc", `$${Math.round(g.btc || 0).toLocaleString()}`, null],
+                        ["fomc", g.next_fomc_date || "—", g.fomc_within_2d ? c.error : null],
+                      ];
+                      return items.map(([k, v, col], i) => <KV key={i} k={k} v={v} color={col} />);
+                    })()}
+                  </SidebarCard>
+                )}
+
+                {/* Account additional */}
+                {account && (
+                  <SidebarCard title="account">
+                    <KV k="portfolio" v={fmtUSD0(pv)} />
+                    <KV k="cash" v={fmtUSD0(account.cash)} />
+                    <KV k="buying power" v={fmtUSD0(account.buying_power)} />
+                    <KV k="positions" v={positions.length} />
+                    <KV k="filled orders" v={orders.filter(o => o.status === "filled").length} />
+                    {winRate && <KV k="win rate" v={`${winRate}%`} color={Number(winRate) > 50 ? c.success : c.error} />}
+                  </SidebarCard>
+                )}
+
+              </aside>
+
+            </div>
           </div>
         </section>
 
-        {/* ── AI DECISION LOG ─────────────────────── */}
-        <section style={{ padding: sectionPad, borderTop: `1px solid ${c.hairline}`, background: c.canvas }}>
-          <div style={containerStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: s["2xl"], flexWrap: "wrap", gap: s.md }}>
-              <div>
-                <Eyebrow>intelligence</Eyebrow>
-                <H2>Decision log.</H2>
-                <Body color={c.body} style={{ marginTop: s.sm }}>
-                  Every analysis cycle — ensemble scores, executed orders, guardrail blocks.
-                </Body>
-              </div>
-              <MonoBadge>{log.length} cycles</MonoBadge>
-            </div>
-            {log.length === 0 ? (
-              <Card padding={s["2xl"]} style={{ textAlign: "center" }}>
-                <Body color={c.mute}>No analyses yet — run one to populate.</Body>
-              </Card>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: s.md, maxHeight: 600, overflowY: "auto" }}>
+        {/* ── DECISION LOG (full width below) ─────── */}
+        {log.length > 0 && (
+          <section style={{ padding: `${s.xl}px ${s.lg}px`, borderTop: `1px solid ${c.hairline}`, background: c.canvas }}>
+            <div style={containerStyle}>
+              <SectionTitle right={<MonoBadge>{log.length} cycles</MonoBadge>}>Decision log</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column", gap: s.sm, maxHeight: 500, overflowY: "auto" }}>
                 {log.map(entry => (
-                  <Card key={entry.id} padding={s.lg}>
+                  <Card key={entry.id} padding={s.md}>
                     <div onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
-                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: s.sm, flexWrap: "wrap", gap: s.sm }}>
-                      <div style={{ ...t.captionMono, color: c.mute }}>{new Date(entry.ts).toLocaleString("en-US")}</div>
-                      <div style={{ display: "flex", gap: s.xs, alignItems: "center", flexWrap: "wrap" }}>
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", flexWrap: "wrap", gap: s.sm }}>
+                      <div style={{ display: "flex", gap: s.sm, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ ...t.captionMono, color: c.mute }}>{fmtDay(entry.ts)} {fmtTime(entry.ts)}</span>
                         {entry.profile && <MonoBadge>{entry.profile.toLowerCase()}</MonoBadge>}
-                        <span style={{ ...t.bodyMDStrong, color: c.ink, fontVariantNumeric: "tabular-nums" }}>
-                          ${entry.value?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
                         <MonoBadge tone={entry.risk === "HIGH" || entry.risk === "EXTREME" ? "error" : entry.risk === "MEDIUM" ? "warning" : "success"}>
                           {entry.risk.toLowerCase()}
                         </MonoBadge>
                         {entry.executed?.length > 0 && <MonoBadge tone="info">{entry.executed.length} exec</MonoBadge>}
+                        {entry.skipped?.length > 0 && <MonoBadge tone="warning">{entry.skipped.length} skip</MonoBadge>}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: s.sm }}>
+                        <span style={{ ...t.bodyMDStrong, color: c.ink, fontVariantNumeric: "tabular-nums" }}>
+                          {fmtUSD2(entry.value)}
+                        </span>
                         <span style={{ ...t.caption, color: c.mute }}>{expanded === entry.id ? "▲" : "▼"}</span>
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: s.xs }}>
-                      {(entry.decisions || []).filter(d => d.action !== "HOLD").map((d, i) => (
-                        <div key={i} style={{ display: "flex", gap: s.xs, alignItems: "center", border: `1px solid ${c.hairline}`, borderRadius: rad.full, padding: "4px 10px" }}>
-                          <MonoBadge tone={d.action === "BUY" ? "success" : "error"}>{d.action.toLowerCase()}</MonoBadge>
-                          <span style={{ ...t.bodySMStrong, color: c.ink }}>{d.ticker}</span>
-                          <span style={{ ...t.bodySM, color: c.body }}>{d.reasoning?.slice(0, 60)}</span>
-                          <span style={{ ...t.captionMono, color: c.mute }}>{(d.conf * 100).toFixed(0)}%</span>
-                        </div>
-                      ))}
-                      {!(entry.decisions || []).filter(d => d.action !== "HOLD").length && (
-                        <span style={{ ...t.bodySM, color: c.mute }}>Hold — confidence below threshold.</span>
-                      )}
-                    </div>
-
                     {expanded === entry.id && (
-                      <div style={{ marginTop: s.lg }}>
+                      <div style={{ marginTop: s.md }}>
                         {(entry.decisions || []).filter(d => d.action !== "HOLD").slice(0, 3).length > 0 && (
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: s.sm, marginBottom: s.md }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: s.sm, marginBottom: s.md }}>
                             {(entry.decisions || []).filter(d => d.action !== "HOLD").slice(0, 3).map((d, i) => (
                               <Card key={i} padding={s.md} elevated>
-                                <div style={{ ...t.bodyMDStrong, color: c.ink, marginBottom: s.xs }}>{d.ticker}</div>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: s.xs }}>
+                                  <span style={{ ...t.bodyMDStrong, color: c.ink }}>{d.ticker}</span>
+                                  <MonoBadge tone={d.action === "BUY" ? "success" : "error"}>{d.action.toLowerCase()}</MonoBadge>
+                                </div>
                                 <ScoreBar val={d.tech || 0}  label="tech 35%" />
                                 <ScoreBar val={d.sent || 0}  label="sent 30%" />
                                 <ScoreBar val={d.macro || 0} label="macro 35%" />
@@ -873,24 +916,9 @@ export default function Home() {
                             ))}
                           </div>
                         )}
-                        {entry.skipped?.length > 0 && (
-                          <Card padding={s.md} style={{ background: c.warningSoft, border: `1px solid ${c.warning}`, marginBottom: s.sm }}>
-                            <Eyebrow color={c.warning}>guardrails blocked</Eyebrow>
-                            {entry.skipped.map((sk, i) => (
-                              <div key={i} style={{ ...t.bodySM, color: c.ink }}>
-                                <span style={{ fontWeight: 500 }}>{sk.ticker}</span> — {sk.reason}
-                              </div>
-                            ))}
-                          </Card>
-                        )}
-                        {(entry.news || []).length > 0 && (
-                          <div>
-                            <Eyebrow>news</Eyebrow>
-                            {entry.news.map((n, i) => (
-                              <div key={i} style={{ ...t.bodySM, color: c.body, padding: `${s.xs}px 0`, borderTop: i > 0 ? `1px solid ${c.hairline}` : "none" }}>
-                                {n}
-                              </div>
-                            ))}
+                        {(entry.decisions || []).filter(d => d.action === "HOLD").length > 0 && (
+                          <div style={{ marginTop: s.xs, ...t.bodySM, color: c.mute }}>
+                            + {(entry.decisions || []).filter(d => d.action === "HOLD").length} more analyzed (hold).
                           </div>
                         )}
                       </div>
@@ -898,25 +926,44 @@ export default function Home() {
                   </Card>
                 ))}
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+          </section>
+        )}
 
-        {/* ── ORDER HISTORY ─────────────────────── */}
+        {/* ── ORDER HISTORY (collapsible at the bottom) ─ */}
         {orders.length > 0 && (
-          <section style={{ padding: sectionPad, borderTop: `1px solid ${c.hairline}` }}>
+          <section style={{ padding: `${s.xl}px ${s.lg}px`, borderTop: `1px solid ${c.hairline}` }}>
             <div style={containerStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: s["2xl"], flexWrap: "wrap", gap: s.md }}>
-                <div>
-                  <Eyebrow>activity</Eyebrow>
-                  <H2>Order history.</H2>
+              <SectionTitle
+                right={
+                  <button onClick={() => setShowOrders(s => !s)} style={{
+                    ...t.bodySM, color: c.body, background: "transparent",
+                    border: "none", cursor: "pointer", padding: 0,
+                  }}>
+                    {showOrders ? "Collapse ▲" : `Show all ${orders.length} ▼`}
+                  </button>
+                }
+              >Order history</SectionTitle>
+              <Card padding={0} style={{ overflow: "hidden" }}>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "80px 1fr 80px 110px 1fr",
+                  gap: s.md, padding: `${s.sm}px ${s.lg}px`,
+                  background: c.canvasSoft2, borderBottom: `1px solid ${c.hairline}`,
+                }}>
+                  {["side", "ticker", "qty", "status", "time"].map((h, i) => (
+                    <div key={i} style={{ ...t.captionMono, color: c.mute, textAlign: i === 4 ? "right" : "left" }}>{h}</div>
+                  ))}
                 </div>
-                <MonoBadge>{orders.slice(0, 10).length} of {orders.length}</MonoBadge>
-              </div>
-              <Card padding={0}>
-                {orders.slice(0, 10).map((o, i) => (
-                  <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 120px 80px 130px 1fr", gap: s.md, alignItems: "center", padding: `${s.md}px ${s.lg}px`, borderBottom: i < orders.slice(0,10).length - 1 ? `1px solid ${c.hairline}` : "none" }}>
-                    <MonoBadge tone={o.side === "buy" ? "success" : o.status === "canceled" ? "warning" : "error"}>{o.side}</MonoBadge>
+                {orders.slice(0, showOrders ? orders.length : 5).map((o, i, arr) => (
+                  <div key={i} className="row-hover" style={{
+                    display: "grid",
+                    gridTemplateColumns: "80px 1fr 80px 110px 1fr",
+                    gap: s.md, padding: `${s.sm}px ${s.lg}px`,
+                    borderBottom: i < arr.length - 1 ? `1px solid ${c.hairline}` : "none",
+                    alignItems: "center",
+                  }}>
+                    <MonoBadge tone={o.side === "buy" ? "success" : "error"}>{o.side}</MonoBadge>
                     <div style={{ ...t.bodyMDStrong, color: c.ink }}>{o.symbol}</div>
                     <div style={{ ...t.bodyMD, color: c.body, fontVariantNumeric: "tabular-nums" }}>{o.qty}</div>
                     <MonoBadge tone={o.status === "filled" ? "success" : o.status === "canceled" ? "warning" : "default"}>{o.status}</MonoBadge>
@@ -929,38 +976,19 @@ export default function Home() {
         )}
 
         {/* ── FOOTER ───────────────────────────── */}
-        <footer style={{
-          background: c.canvas,
-          borderTop: `1px solid ${c.hairline}`,
-          padding: `${s["4xl"]}px ${s.lg}px ${s.xl}px`,
-        }}>
+        <footer style={{ background: c.canvas, borderTop: `1px solid ${c.hairline}`, padding: `${s.xl}px ${s.lg}px ${s.lg}px` }}>
           <div style={containerStyle}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: s.xl, marginBottom: s.xl }}>
-              <div>
-                <Eyebrow>kenos</Eyebrow>
-                <Body style={{ marginBottom: s.xs }}>κένωσις — self-emptying.</Body>
-                <Body>AI ensemble paper trading on Alpaca.</Body>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: s.md }}>
+              <div style={{ display: "flex", alignItems: "center", gap: s.sm }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: rad.sm,
+                  background: meshGradient.backdrop, backgroundColor: c.canvas,
+                }} />
+                <span style={{ ...t.bodySM, color: c.body }}>KENOS · κένωσις · paper trading on Alpaca.</span>
               </div>
-              <div>
-                <Eyebrow>system</Eyebrow>
-                <Body style={{ marginBottom: s.xs }}>profile · {profile.toLowerCase()}</Body>
-                <Body style={{ marginBottom: s.xs }}>tier · {currentTier?.label?.replace(/^[^A-Za-z]+\s*/, "").toLowerCase() || "—"}</Body>
-                <Body>day {days + 1}</Body>
+              <div style={{ ...t.captionMono, color: c.mute }}>
+                v1.0 · not investment advice · day {days + 1}
               </div>
-              <div>
-                <Eyebrow>stack</Eyebrow>
-                <Body style={{ marginBottom: s.xs }}>Next.js 14</Body>
-                <Body style={{ marginBottom: s.xs }}>Claude Sonnet</Body>
-                <Body>Alpaca Paper</Body>
-              </div>
-              <div>
-                <Eyebrow>disclaimer</Eyebrow>
-                <Body>Paper trading only. No real capital. Not investment advice.</Body>
-              </div>
-            </div>
-            <div style={{ borderTop: `1px solid ${c.hairline}`, paddingTop: s.md, display: "flex", justifyContent: "space-between", ...t.caption, color: c.mute }}>
-              <span>© KENOS · κένωσις</span>
-              <span style={{ ...t.captionMono }}>v1.0 — paper</span>
             </div>
           </div>
         </footer>
