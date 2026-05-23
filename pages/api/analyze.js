@@ -282,29 +282,67 @@ NEWS RULES:
   headlines (already verified breaking) with HIGH severity in your news array.`;
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    // Gemini 2.5 Pro endpoint with Google Search grounding.
+    // Note: Search grounding is incompatible with responseSchema/JSON mode,
+    // so we rely on extractJson() for parsing — same approach as before.
+    const MODEL = "gemini-2.5-pro";
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_KEY}`;
+
+    const r = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_KEY,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 8000,   // raised from 4500 — long structured output needs room
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{ role: "user", content: prompt }],
+        contents: [
+          { role: "user", parts: [{ text: prompt }] },
+        ],
+        tools: [
+          { google_search: {} },   // Gemini 2.x grounding tool
+        ],
+        generationConfig: {
+          temperature: 0.4,        // moderately deterministic for financial JSON
+          topK: 32,
+          topP: 0.95,
+          maxOutputTokens: 8000,
+        },
+        safetySettings: [
+          // Loosen safety filters that occasionally block neutral financial commentary
+          { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+        ],
       }),
     });
 
     const data = await r.json();
-    const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("") || "";
+
+    if (data.error) {
+      return res.status(500).json({
+        error: `Gemini API error: ${data.error.message || JSON.stringify(data.error)}`,
+        details: data.error,
+      });
+    }
+
+    // Extract text from Gemini response structure
+    const candidate = data.candidates?.[0];
+    if (!candidate) {
+      return res.status(500).json({ error: "No candidates returned by Gemini", raw: data });
+    }
+    if (candidate.finishReason === "SAFETY") {
+      return res.status(500).json({ error: "Gemini blocked response for safety", raw: candidate });
+    }
+
+    const text = (candidate.content?.parts || [])
+      .map(p => p.text || "")
+      .filter(Boolean)
+      .join("");
 
     const parsed = extractJson(text);
     if (!parsed) {
       return res.status(500).json({
-        error: "AI response not parseable as JSON",
+        error: "Gemini response not parseable as JSON",
         snippet: text.slice(0, 300),
+        finish_reason: candidate.finishReason,
       });
     }
     res.json(parsed);
