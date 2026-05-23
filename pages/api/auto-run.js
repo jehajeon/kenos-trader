@@ -91,9 +91,17 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "unauthorized" });
   }
 
-  // 1) ET 시간 윈도우 검증
+  // Breaking-news trigger: called by /api/news-poll on HIGH severity.
+  // Bypasses time window check (whole point of "breaking" is off-cycle execution),
+  // but still respects market hours (Alpaca clock) and kill switch.
+  const isBreaking = req.query.reason === "breaking";
+  const breaking_context = isBreaking ? (req.body?.breaking_context || null) : null;
+
+  // 1) ET 시간 윈도우 검증 (breaking은 우회)
   const et = getETParts();
-  const win = pickWindow(et);
+  const win = isBreaking
+    ? { key: "breaking", day: et.weekday === "Sun" ? "sunday" : "weekday", min: 0, max: 1440, execute: true, label: "🚨 BREAKING" }
+    : pickWindow(et);
   if (!win) {
     return res.status(200).json({
       skipped: true, reason: "outside scheduled window",
@@ -101,13 +109,15 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2) 이벤트 블랙아웃 검증
-  const blackout = inBlackout(et);
-  if (blackout) {
-    return res.status(200).json({
-      skipped: true, reason: `blackout: ${blackout.name}`,
-      window: win.label, et_time: `${et.hour}:${String(et.minute).padStart(2,"0")} ET`,
-    });
+  // 2) 이벤트 블랙아웃 검증 (breaking은 우회 — 속보는 블랙아웃 중에도 대응 필요)
+  if (!isBreaking) {
+    const blackout = inBlackout(et);
+    if (blackout) {
+      return res.status(200).json({
+        skipped: true, reason: `blackout: ${blackout.name}`,
+        window: win.label, et_time: `${et.hour}:${String(et.minute).padStart(2,"0")} ET`,
+      });
+    }
   }
 
   // 3) Alpaca 시계 확인 — 휴장일/주말 자동 회피 (단, weekly_review는 시장 닫혀도 분석만 수행)
