@@ -1,6 +1,11 @@
 // pages/api/analyze.js
-// KENOS Claude AI 분석 — 전문 트레이딩 판단 엔진
-// 거시·금리·환율·유가·VIX·실적일정·상관관계까지 명시적으로 평가
+// KENOS — Gemini 2.5 Pro 분석 엔진 (Google AI Studio API).
+// 거시·금리·환율·유가·VIX·실적일정·상관관계까지 명시적으로 평가.
+//
+// Google Search grounding으로 실시간 가격·뉴스·매크로 데이터 수집.
+// 무료 한도: ~100 req/일 (우리 사용량 5~10 req/일 대비 10배 여유).
+//
+// Env var: GEMINI_API_KEY (Google AI Studio https://aistudio.google.com 에서 발급)
 
 const SECTORS = {
   "🇰🇷 한국":    ["EWY"],
