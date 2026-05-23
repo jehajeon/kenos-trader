@@ -33,8 +33,8 @@ const CORRELATION_GROUPS = {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const CLAUDE_KEY = process.env.ANTHROPIC_API_KEY;
-  if (!CLAUDE_KEY) return res.status(500).json({ error: "Claude API 키 없음" });
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_KEY) return res.status(500).json({ error: "GEMINI_API_KEY not set (get from https://aistudio.google.com)" });
 
   const { account, positions, risk, breaking_context } = req.body;
   const pv = Number(account.portfolio_value);
