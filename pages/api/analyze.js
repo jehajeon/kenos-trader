@@ -88,7 +88,7 @@ Detected: ${breaking_context.detected_at || "just now"}
   const prompt = `You are KENOS — a disciplined, professional AI trading strategist for a US paper-trading account.
 Operate with humility (κένωσις): when signals conflict, the default is HOLD. Never force trades.
 
-DATE: ${dateStr}
+DATE: ${dateStr}${breakingBlock}
 
 ACTIVE PROFILE: ${profileName} (capital tier: ${tierLabel})
 - This profile dictates how aggressively you should score and recommend.
