@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   const CLAUDE_KEY = process.env.ANTHROPIC_API_KEY;
   if (!CLAUDE_KEY) return res.status(500).json({ error: "Claude API 키 없음" });
 
-  const { account, positions, risk } = req.body;
+  const { account, positions, risk, breaking_context } = req.body;
   const pv = Number(account.portfolio_value);
   const cash = Number(account.cash);
   const cashPct = (cash / pv) * 100;
