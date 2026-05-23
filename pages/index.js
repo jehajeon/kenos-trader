@@ -430,6 +430,7 @@ export default function Home() {
         value: Number(finalAcc.portfolio_value), cash: Number(finalAcc.cash),
         prices: ai.prices || {}, profile, tier: risk._tier_name,
         tierLabel: risk._tier_label, drawdowns, killSwitch,
+        breaking: false,  // browser-initiated; news-poll path sets this in server response
       };
       const newLog = [entry, ...log].slice(0, 50);
       setLog(newLog); setExpanded(entry.id);
