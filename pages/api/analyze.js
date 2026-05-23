@@ -327,7 +327,10 @@ NEWS RULES:
           temperature: 0.4,        // moderately deterministic for financial JSON
           topK: 32,
           topP: 0.95,
-          maxOutputTokens: 8000,
+          maxOutputTokens: 16000,  // raised — 2.5 Flash thinking can consume tokens
+          // Disable thinking mode — for JSON output we want all tokens for the answer.
+          // Gemini 2.5 Flash defaults to thinking, which silently eats output budget.
+          thinkingConfig: { thinkingBudget: 0 },
         },
         safetySettings: [
           // Loosen safety filters that occasionally block neutral financial commentary
