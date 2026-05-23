@@ -236,7 +236,7 @@ OUTPUT — return ONLY raw JSON, no markdown, no commentary:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 4500,
+        max_tokens: 8000,   // raised from 4500 — long structured output needs room
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: [{ role: "user", content: prompt }],
       }),
@@ -244,11 +244,59 @@ OUTPUT — return ONLY raw JSON, no markdown, no commentary:
 
     const data = await r.json();
     const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("") || "";
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return res.status(500).json({ error: "AI 응답 파싱 실패" });
-    res.json(JSON.parse(m[0]));
+
+    const parsed = extractJson(text);
+    if (!parsed) {
+      return res.status(500).json({
+        error: "AI response not parseable as JSON",
+        snippet: text.slice(0, 300),
+      });
+    }
+    res.json(parsed);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+}
+
+// Robust JSON extraction from LLM output.
+// Handles common failure modes: markdown fences, trailing commas, missing commas
+// between array elements, and stray text around the JSON object.
+function extractJson(text) {
+  if (!text) return null;
+
+  // 1) Strip markdown code fences if Claude wraps the JSON in ```json … ```
+  let s = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*$/g, "").trim();
+
+  // 2) Slice from first '{' to the matching last '}' to drop any surrounding prose
+  const start = s.indexOf("{");
+  const end   = s.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return null;
+  s = s.slice(start, end + 1);
+
+  // First attempt: raw parse
+  try { return JSON.parse(s); } catch (e) { /* fall through to repair */ }
+
+  // 3) Common LLM JSON mistakes — best-effort fixes
+  let repaired = s;
+
+  // Remove trailing commas before } or ]
+  repaired = repaired.replace(/,\s*([}\]])/g, "$1");
+
+  // Insert missing commas between array elements: }{ ][ "}{
+  repaired = repaired.replace(/}\s*\n\s*{/g, "},\n{");
+  repaired = repaired.replace(/]\s*\n\s*\[/g, "],\n[");
+  repaired = repaired.replace(/"\s*\n\s*"/g, '",\n"');
+
+  // Fix unescaped newlines inside strings: replace \n inside "..." with space
+  // (cautious — only if the string isn't already escaped properly)
+  repaired = repaired.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (m) =>
+    m.replace(/\n/g, "\\n").replace(/\r/g, "\\r")
+  );
+
+  try { return JSON.parse(repaired); } catch (e) {
+    console.warn("[analyze.js] JSON repair failed:", e.message);
+    console.warn("[analyze.js] Snippet around failure:", repaired.slice(Math.max(0, (e.message.match(/position (\d+)/)?.[1] | 0) - 50), (e.message.match(/position (\d+)/)?.[1] | 0) + 50));
+    return null;
   }
 }
 
