@@ -360,20 +360,40 @@ NEWS RULES:
       return res.status(500).json({ error: "Gemini blocked response for safety", raw: candidate });
     }
 
-    const text = (candidate.content?.parts || [])
-      .map(p => p.text || "")
-      .filter(Boolean)
-      .join("");
+    // Gather all text parts
+    const textParts = (candidate.content?.parts || []).map(p => p.text || "").filter(Boolean);
+    const joined = textParts.join("\n");
 
-    const parsed = extractJson(text);
+    // Try parsing strategies in order: last text part (final JSON), then joined, then last part with repair
+    let parsed = null;
+    let parseStrategy = null;
+    if (textParts.length > 0) {
+      parsed = extractJson(textParts[textParts.length - 1]);
+      if (parsed) parseStrategy = "last-part";
+    }
     if (!parsed) {
+      parsed = extractJson(joined);
+      if (parsed) parseStrategy = "joined";
+    }
+
+    if (!parsed) {
+      // Include actionable debug info — show snippet, finish reason, and token usage
+      const usage = data.usageMetadata || {};
       return res.status(500).json({
         error: "Gemini response not parseable as JSON",
-        snippet: text.slice(0, 300),
         finish_reason: candidate.finishReason,
+        snippet_start: joined.slice(0, 400),
+        snippet_end:   joined.slice(-400),
+        text_parts_count: textParts.length,
+        prompt_tokens:    usage.promptTokenCount,
+        candidates_tokens: usage.candidatesTokenCount,
+        total_tokens:     usage.totalTokenCount,
+        hint: candidate.finishReason === "MAX_TOKENS"
+          ? "Output was truncated — raise maxOutputTokens or simplify prompt."
+          : "Inspect snippet_end to see where the JSON broke.",
       });
     }
-    res.json(parsed);
+    res.json({ ...parsed, _parse_strategy: parseStrategy });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
