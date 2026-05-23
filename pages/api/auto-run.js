@@ -155,13 +155,13 @@ export default async function handler(req, res) {
     });
     const killSwitch = evaluateKillSwitch(drawdowns);
 
-    // 6) Claude 분석 호출 — risk + kill_switch를 함께 전달
+    // 6) Claude 분석 호출 — risk + kill_switch + breaking_context 전달
     const proto = req.headers["x-forwarded-proto"] || "https";
     const host = req.headers.host;
     const analyzeRes = await fetch(`${proto}://${host}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ account, positions, risk, kill_switch: killSwitch }),
+      body: JSON.stringify({ account, positions, risk, kill_switch: killSwitch, breaking_context }),
     });
     if (!analyzeRes.ok) {
       const e = await analyzeRes.json();
