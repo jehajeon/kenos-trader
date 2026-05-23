@@ -308,8 +308,7 @@ NEWS RULES:
     // Gemini 2.5 Pro endpoint with Google Search grounding.
     // Note: Search grounding is incompatible with responseSchema/JSON mode,
     // so we rely on extractJson() for parsing — same approach as before.
-    const MODEL = "gemini-2.5-pro";
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_KEY}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent?key=${GEMINI_KEY}`;
 
     const r = await fetch(endpoint, {
       method: "POST",
