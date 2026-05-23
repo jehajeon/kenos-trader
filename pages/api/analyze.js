@@ -103,7 +103,19 @@ RESEARCH PROTOCOL — perform ALL of the following web searches:
   7. VIX level (>20 = elevated fear, >30 = panic, <15 = complacency)
   8. Gold price (safe-haven flow indicator)
   9. Bitcoin price (risk-on/off proxy, also affects COIN directly)
- 10. Geopolitical headlines (Taiwan/China, Middle East, Ukraine, tariffs)
+ 10. Geopolitical headlines — search ALL of these regions/themes (last 48h):
+     a) Taiwan / China — semiconductor sanctions, military exercises (impacts TSM/AVGO/NVDA/AMD)
+     b) Middle East — Israel/Iran/Gaza, Red Sea shipping (impacts XOM/CVX)
+     c) Ukraine / Russia — war updates, energy infrastructure
+     d) Korea — North Korea provocations, US/Korea/Japan trilateral
+     e) Tariffs / trade — US-China tariffs, EU tariffs, USMCA
+     f) Central banks — BOJ rate decisions, ECB policy, BOE
+     g) US politics — Fed nominations, debt ceiling, government shutdown risk
+     h) OPEC+ — output cuts, surprise meetings
+     i) EU regulation — AI Act, DMA, antitrust on US tech giants
+     j) Sanctions — new designations affecting traded sectors
+     k) Climate / disasters — hurricanes, earthquakes affecting supply chains
+     l) Health — pandemic / outbreak alerts
 
 [B] PER-TICKER FUNDAMENTALS (for all holdings + top watchlist candidates)
  11. Current real-time price + today's % change + 5-day, 20-day trend
