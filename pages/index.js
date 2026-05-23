@@ -227,11 +227,19 @@ export default function Home() {
 
   useEffect(() => {
     loadAccount();
-    const saved  = localStorage.getItem("kenos_log");
-    const savedH = localStorage.getItem("kenos_hist");
+    const safeParse = (key, fallback) => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch (e) {
+        console.warn(`localStorage ${key} corrupted — resetting.`, e.message);
+        localStorage.removeItem(key);
+        return fallback;
+      }
+    };
+    setLog(safeParse("kenos_log", []));
+    setHistory(safeParse("kenos_hist", []));
     const savedP = localStorage.getItem("kenos_profile");
-    if (saved)  setLog(JSON.parse(saved));
-    if (savedH) setHistory(JSON.parse(savedH));
     if (savedP && PROFILES[savedP]) setProfile(savedP);
   }, []);
 
