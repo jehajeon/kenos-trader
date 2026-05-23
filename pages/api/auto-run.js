@@ -330,6 +330,8 @@ export default async function handler(req, res) {
       executed, skipped,
       portfolio_value: pv, cash_after: cash,
       market: ai.market, risk_level: ai.risk, outlook: ai.outlook,
+      breaking: isBreaking,
+      breaking_context: breaking_context || null,
     });
 
   } catch (e) {
