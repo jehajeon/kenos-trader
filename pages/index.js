@@ -5,73 +5,199 @@ import {
   resolveRisk, getCapitalTier,
   computeDrawdowns, evaluateKillSwitch, KILL_SWITCH_LIMITS,
 } from "../lib/risk-config";
+import { tokens } from "../lib/design-tokens";
 
+const { colors: c, spacing: s, type: t, radius: r, stripe } = tokens;
+
+// ─────────────────────────────────────────────────────────────────────
+// Domain config (sectors and ticker mapping kept from original)
+// ─────────────────────────────────────────────────────────────────────
 const SECTORS = {
-  "🇰🇷 한국":    ["EWY"],
-  "🔬 바이오":   ["MRNA","ABBV","REGN"],
-  "⚡ 에너지":   ["XOM","CVX","NEE"],
-  "🔋 배터리":   ["TSLA","ALB"],
-  "💾 반도체":   ["NVDA","AMD","TSM","AVGO"],
-  "🤖 AI/테크":  ["MSFT","GOOGL","META","PLTR","AMZN"],
-  "🌱 환경":     ["ENPH","FSLR"],
-  "🚗 자동차":   ["TM","GM"],
-  "🚀 미래유망": ["RKLB","IONQ","AAPL","COIN"],
+  "KOREA":    ["EWY"],
+  "BIO":      ["MRNA","ABBV","REGN"],
+  "ENERGY":   ["XOM","CVX","NEE"],
+  "BATTERY":  ["TSLA","ALB"],
+  "SEMI":     ["NVDA","AMD","TSM","AVGO"],
+  "AI/TECH":  ["MSFT","GOOGL","META","PLTR","AMZN"],
+  "GREEN":    ["ENPH","FSLR"],
+  "AUTO":     ["TM","GM"],
+  "FUTURE":   ["RKLB","IONQ","AAPL","COIN"],
 };
 const TICKER_SECTOR = {};
-Object.entries(SECTORS).forEach(([s,ts]) => ts.forEach(t => TICKER_SECTOR[t]=s));
+Object.entries(SECTORS).forEach(([sec, ts]) => ts.forEach(tk => TICKER_SECTOR[tk] = sec));
 
-// RISK_LIMITS / CORRELATION_GROUPS는 lib/risk-config.js로 이동
-// (프로파일·자금 티어에 따라 동적으로 resolveRisk()로 계산)
-const SECTOR_COLORS = {
-  "🇰🇷 한국":"#4d9fff","🔬 바이오":"#b44dff","⚡ 에너지":"#ffb84d",
-  "🔋 배터리":"#00ff88","💾 반도체":"#ff6b6b","🤖 AI/테크":"#4dffd8",
-  "🌱 환경":"#7dff4d","🚗 자동차":"#ff8c4d","🚀 미래유망":"#ff4da6",
-};
-
-async function alpacaCall(path, method="GET", body=null) {
-  const r = await fetch("/api/alpaca", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({path, method, body})
+// ─────────────────────────────────────────────────────────────────────
+// API helper
+// ─────────────────────────────────────────────────────────────────────
+async function alpacaCall(path, method = "GET", body = null) {
+  const res = await fetch("/api/alpaca", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, method, body }),
   });
-  if (!r.ok) { const e=await r.json(); throw new Error(e.error||`오류 ${r.status}`); }
-  return r.json();
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error || `HTTP ${res.status}`); }
+  return res.json();
 }
 
-function Chart({ history, color }) {
-  if (!history||history.length<2) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#1e3050",fontSize:11,fontFamily:"monospace"}}>
-      분석 실행 후 차트 표시
+// ─────────────────────────────────────────────────────────────────────
+// Primitive UI components
+// ─────────────────────────────────────────────────────────────────────
+function MStripe({ height = stripe.height, margin = 0 }) {
+  return <div style={{ height, backgroundImage: stripe.backgroundImage, margin }} />;
+}
+
+function SectionHeader({ kicker, title, right }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: s.lg, gap: s.md, flexWrap: "wrap" }}>
+      <div>
+        {kicker && <div style={{ ...t.label, color: c.muted, marginBottom: s.xs }}>{kicker}</div>}
+        <h2 style={{ ...t.displayMD, color: c.onDark, margin: 0 }}>{title}</h2>
+      </div>
+      {right}
     </div>
   );
-  const vals=history.map(h=>h.v);
-  const mn=Math.min(...vals)*0.997, mx=Math.max(...vals)*1.003, rng=mx-mn||1;
-  const W=500,H=80, base=H-((history[0].v-mn)/rng)*H;
-  const pts=vals.map((v,i)=>`${(i/Math.max(vals.length-1,1))*W},${H-((v-mn)/rng)*H}`).join(" ");
+}
+
+function Button({ children, onClick, disabled, variant = "outline", size = "md", title }) {
+  const heights = { sm: 36, md: 44, lg: 52 };
+  const pads = { sm: "0 16px", md: "0 24px", lg: "0 32px" };
+  const variants = {
+    outline:  { bg: "transparent",   color: c.onDark, border: `1px solid ${c.onDark}` },
+    filled:   { bg: c.onDark,        color: c.canvas, border: `1px solid ${c.onDark}` },
+    ghost:    { bg: "transparent",   color: c.muted,  border: `1px solid ${c.hairline}` },
+    danger:   { bg: "transparent",   color: c.mRed,   border: `1px solid ${c.mRed}` },
+  };
+  const v = variants[variant] || variants.outline;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:"100%",height:"100%"}}>
-      <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.25"/><stop offset="100%" stopColor={color} stopOpacity="0"/></linearGradient></defs>
-      <polyline points={`0,${H} ${pts} ${W},${H}`} fill="url(#cg)"/>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round"/>
-      <line x1="0" y1={base} x2={W} y2={base} stroke="#1a2e44" strokeWidth="1" strokeDasharray="4,3"/>
+    <button
+      onClick={onClick} disabled={disabled} title={title}
+      style={{
+        ...t.button,
+        background: v.bg, color: disabled ? c.muted : v.color,
+        border: disabled ? `1px solid ${c.hairline}` : v.border,
+        borderRadius: r.none,
+        padding: pads[size], height: heights[size],
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        transition: "background 120ms, color 120ms",
+      }}>
+      {children}
+    </button>
+  );
+}
+
+function ToggleButton({ active, accent, onClick, children, title }) {
+  return (
+    <button
+      onClick={onClick} title={title}
+      style={{
+        ...t.button, fontSize: 11, letterSpacing: "1.2px",
+        background: active ? c.onDark : "transparent",
+        color: active ? c.canvas : c.body,
+        border: `1px solid ${active ? c.onDark : c.hairline}`,
+        borderRadius: r.none,
+        padding: "8px 14px", height: 32,
+        cursor: "pointer",
+        borderTop: active && accent ? `2px solid ${accent}` : `1px solid ${active ? c.onDark : c.hairline}`,
+      }}>
+      {children}
+    </button>
+  );
+}
+
+function StatCell({ label, value, sub, valueColor, accent }) {
+  return (
+    <div style={{
+      background: c.surfaceSoft,
+      borderTop: accent ? `2px solid ${accent}` : `1px solid ${c.hairlineStrong}`,
+      padding: `${s.lg}px ${s.lg}px`,
+      borderRadius: r.none,
+    }}>
+      <div style={{ ...t.label, color: c.muted, marginBottom: s.sm }}>{label}</div>
+      <div style={{ ...t.statValue, color: valueColor || c.onDark }}>{value}</div>
+      {sub && <div style={{ ...t.bodySM, color: c.muted, marginTop: s.xs }}>{sub}</div>}
+    </div>
+  );
+}
+
+function SpecCell({ label, value, sub, valueColor }) {
+  return (
+    <div style={{ background: c.surfaceSoft, padding: s.md, borderRadius: r.none, border: `1px solid ${c.hairlineStrong}` }}>
+      <div style={{ ...t.labelSm, color: c.muted, marginBottom: 6 }}>{label}</div>
+      <div style={{ ...t.statValueSm, color: valueColor || c.onDark }}>{value}</div>
+      {sub && <div style={{ ...t.caption, color: c.muted, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function Badge({ children, tone = "default" }) {
+  const tones = {
+    default:  { bg: "transparent",   color: c.onDark, border: c.hairline },
+    profit:   { bg: c.profitSoft,    color: c.profit, border: c.profit },
+    loss:     { bg: c.lossSoft,      color: c.loss,   border: c.loss },
+    warning:  { bg: c.warningSoft,   color: c.warning,border: c.warning },
+    info:     { bg: "transparent",   color: c.mBlueDark, border: c.mBlueDark },
+    inverted: { bg: c.onDark,        color: c.canvas, border: c.onDark },
+  };
+  const v = tones[tone] || tones.default;
+  return (
+    <span style={{
+      ...t.label, fontSize: 10, letterSpacing: "1.2px",
+      display: "inline-block",
+      background: v.bg, color: v.color, border: `1px solid ${v.border}`,
+      padding: "3px 8px", borderRadius: r.none,
+    }}>{children}</span>
+  );
+}
+
+function Chart({ history, lineColor }) {
+  if (!history || history.length < 2) {
+    return (
+      <div style={{ ...t.bodySM, display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: c.muted }}>
+        Run analysis to populate chart
+      </div>
+    );
+  }
+  const vals = history.map(h => h.v);
+  const mn = Math.min(...vals) * 0.997, mx = Math.max(...vals) * 1.003, rng = mx - mn || 1;
+  const W = 600, H = 100;
+  const base = H - ((history[0].v - mn) / rng) * H;
+  const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * W},${H - ((v - mn) / rng) * H}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+      <defs>
+        <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polyline points={`0,${H} ${pts} ${W},${H}`} fill="url(#chartFill)" />
+      <polyline points={pts} fill="none" stroke={lineColor} strokeWidth="1.5" strokeLinejoin="round" />
+      <line x1="0" y1={base} x2={W} y2={base} stroke={c.hairline} strokeWidth="1" strokeDasharray="3,3" />
     </svg>
   );
 }
 
-function Bar({val,label}) {
-  const col=val>0.15?"#00ff88":val<-0.15?"#ff4466":"#ffd700";
+function ScoreBar({ val, label }) {
+  const col = val > 0.15 ? c.profit : val < -0.15 ? c.loss : c.warning;
+  const pct = Math.min(Math.abs(val), 1) * 50;
   return (
-    <div style={{marginBottom:4}}>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3a5570",marginBottom:2,fontFamily:"monospace"}}>
-        <span>{label}</span><span style={{color:col}}>{val>0?"+":""}{(val*100).toFixed(0)}</span>
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", ...t.labelSm, color: c.muted, marginBottom: 3 }}>
+        <span>{label}</span>
+        <span style={{ color: col }}>{val > 0 ? "+" : ""}{(val * 100).toFixed(0)}</span>
       </div>
-      <div style={{height:3,background:"#0a1520",borderRadius:2,position:"relative"}}>
-        <div style={{position:"absolute",top:0,left:`${val<0?50-Math.abs(val)*50:50}%`,width:`${Math.abs(val)*50}%`,height:"100%",background:col,borderRadius:2}}/>
-        <div style={{position:"absolute",top:-2,left:"50%",width:1,height:7,background:"#1a2e44"}}/>
+      <div style={{ height: 2, background: c.surfaceElevated, position: "relative" }}>
+        <div style={{ position: "absolute", top: 0, left: `${val < 0 ? 50 - pct : 50}%`, width: `${pct}%`, height: "100%", background: col }} />
+        <div style={{ position: "absolute", top: -1, left: "50%", width: 1, height: 4, background: c.hairline }} />
       </div>
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Main page
+// ─────────────────────────────────────────────────────────────────────
 export default function Home() {
   const [account,   setAccount]   = useState(null);
   const [positions, setPositions] = useState([]);
@@ -103,14 +229,14 @@ export default function Home() {
   }, [profile]);
 
   useEffect(() => {
-    const t = setInterval(() => {
+    const id = setInterval(() => {
       if (!nextRun) return;
       const diff = nextRun - Date.now();
-      if (diff <= 0) { setCountdown("곧 실행..."); return; }
-      const h=Math.floor(diff/3600000), m=Math.floor((diff%3600000)/60000), s=Math.floor((diff%60000)/1000);
-      setCountdown(`${h>0?h+"h ":""}${m}m ${s}s`);
+      if (diff <= 0) { setCountdown("RUNNING SOON"); return; }
+      const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), sec = Math.floor((diff % 60000) / 1000);
+      setCountdown(`${h > 0 ? h + "h " : ""}${m}m ${sec}s`);
     }, 1000);
-    return () => clearInterval(t);
+    return () => clearInterval(id);
   }, [nextRun]);
 
   const loadAccount = async () => {
@@ -120,24 +246,21 @@ export default function Home() {
       const ord = await alpacaCall("/v2/orders?status=all&limit=20");
       setAccount(acc); setPositions(pos); setOrders(ord);
       return { acc, pos };
-    } catch(e) { setErr(e.message); return null; }
+    } catch (e) { setErr(e.message); return null; }
   };
 
   const runAnalysis = useCallback(async () => {
     if (loading) return;
-    setLoading(true); setErr(null); setStep("🔍 실시간 주가 & 뉴스 수집 중...");
-    const t1=setTimeout(()=>setStep("🧠 앙상블 AI 분석 중..."),5000);
-    const t2=setTimeout(()=>setStep("⚡ Alpaca 주문 실행 중..."),12000);
+    setLoading(true); setErr(null); setStep("Fetching real-time prices and news");
+    const t1 = setTimeout(() => setStep("Running ensemble AI analysis"), 5000);
+    const t2 = setTimeout(() => setStep("Executing orders via Alpaca"), 12000);
     try {
       const refreshed = await loadAccount();
-      if (!refreshed) throw new Error("계좌 로드 실패");
+      if (!refreshed) throw new Error("Account load failed");
       const { acc, pos } = refreshed;
 
-      // 프로파일 + 자금 티어로 effective 리스크 계산
       const portfolioValue = Number(acc.portfolio_value);
       const risk = resolveRisk(profile, portfolioValue);
-
-      // 드로다운 + 킬 스위치 평가
       const drawdowns = computeDrawdowns({
         currentEquity: portfolioValue,
         lastEquity:    Number(acc.last_equity || portfolioValue),
@@ -146,170 +269,113 @@ export default function Home() {
       const killSwitch = evaluateKillSwitch(drawdowns);
 
       const aiResp = await fetch("/api/analyze", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ account:acc, positions:pos, risk, kill_switch:killSwitch }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account: acc, positions: pos, risk, kill_switch: killSwitch }),
       });
-      if (!aiResp.ok) { const e=await aiResp.json(); throw new Error(e.error); }
+      if (!aiResp.ok) { const e = await aiResp.json(); throw new Error(e.error); }
       const ai = await aiResp.json();
 
       const vix = Number(ai.regime?.vix || 0);
       const fomcSoon = !!ai.regime?.fomc_within_2d;
       const panicRegime = vix >= risk.PANIC_VIX;
 
-      const positionMV = {};
-      const sectorMV = {};
+      const positionMV = {}, sectorMV = {};
       pos.forEach(p => {
         const mv = Number(p.current_price) * Number(p.qty);
         positionMV[p.symbol] = mv;
-        const s = TICKER_SECTOR[p.symbol] || "기타";
-        sectorMV[s] = (sectorMV[s] || 0) + mv;
+        const sec = TICKER_SECTOR[p.symbol] || "OTHER";
+        sectorMV[sec] = (sectorMV[sec] || 0) + mv;
       });
+      const groupOf = (ticker) => Object.entries(CORRELATION_GROUPS).find(([, ns]) => ns.includes(ticker))?.[0] || null;
+      const groupExposure = (group, excludeTicker) => CORRELATION_GROUPS[group].reduce((a, tk) => {
+        if (tk === excludeTicker || !positionMV[tk]) return a;
+        return { mv: a.mv + positionMV[tk], names: a.names + 1 };
+      }, { mv: 0, names: 0 });
 
-      const groupOf = (ticker) => {
-        for (const [g, names] of Object.entries(CORRELATION_GROUPS)) {
-          if (names.includes(ticker)) return g;
-        }
-        return null;
-      };
-      const groupExposure = (group, excludeTicker) => {
-        let mv = 0, names = 0;
-        CORRELATION_GROUPS[group].forEach(t => {
-          if (t === excludeTicker) return;
-          if (positionMV[t]) { mv += positionMV[t]; names += 1; }
-        });
-        return { mv, names };
-      };
-
-      // 1단계: 코드 레벨 stop-loss / take-profit 자동 트리거 (AI 결정 전에 강제)
+      // Forced trades (stop-loss / take-profit / rebalance)
       const forcedDecisions = [];
       pos.forEach(p => {
-        const cost = Number(p.avg_entry_price);
-        const cur  = Number(p.current_price);
-        const qty  = Number(p.qty);
+        const cost = Number(p.avg_entry_price), cur = Number(p.current_price), qty = Number(p.qty);
         const pnlPct = (cur - cost) / cost;
         const weight = (cur * qty) / portfolioValue;
-
         if (pnlPct <= risk.STOP_LOSS_PCT) {
-          forcedDecisions.push({
-            ticker: p.symbol, action: "SELL", qty,
-            reasoning: `STOP-LOSS ${(pnlPct*100).toFixed(1)}%`,
-            conf: 0.99, forced: "STOP_LOSS",
-          });
+          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty, reasoning: `STOP-LOSS ${(pnlPct*100).toFixed(1)}%`, conf: 0.99, forced: "STOP_LOSS" });
         } else if (pnlPct >= risk.TAKE_PROFIT_PCT) {
-          const trimQty = Math.max(1, Math.floor(qty * risk.TAKE_PROFIT_TRIM_PCT));
-          forcedDecisions.push({
-            ticker: p.symbol, action: "SELL", qty: trimQty,
-            reasoning: `TAKE-PROFIT +${(pnlPct*100).toFixed(1)}% (${(risk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)}% 익절)`,
-            conf: 0.99, forced: "TAKE_PROFIT",
-          });
+          const trim = Math.max(1, Math.floor(qty * risk.TAKE_PROFIT_TRIM_PCT));
+          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty: trim, reasoning: `TAKE-PROFIT +${(pnlPct*100).toFixed(1)}% (${(risk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)}% trim)`, conf: 0.99, forced: "TAKE_PROFIT" });
         } else if (weight > risk.POSITION_CAP_PCT) {
           const targetMV = portfolioValue * risk.POSITION_CAP_PCT;
           const excessMV = (cur * qty) - targetMV;
-          const trimQty = Math.max(1, Math.ceil(excessMV / cur));
-          forcedDecisions.push({
-            ticker: p.symbol, action: "SELL", qty: trimQty,
-            reasoning: `REBALANCE 비중 ${(weight*100).toFixed(1)}% → ${(risk.POSITION_CAP_PCT*100).toFixed(0)}% 축소`,
-            conf: 0.99, forced: "POSITION_CAP",
-          });
+          const trim = Math.max(1, Math.ceil(excessMV / cur));
+          forcedDecisions.push({ ticker: p.symbol, action: "SELL", qty: trim, reasoning: `REBALANCE ${(weight*100).toFixed(1)}% → ${(risk.POSITION_CAP_PCT*100).toFixed(0)}%`, conf: 0.99, forced: "POSITION_CAP" });
         }
       });
 
-      // 2단계: AI 결정과 강제 결정 병합 (강제가 우선)
       const aiDecisions = (ai.decisions || []).filter(d => d.action !== "HOLD");
       const forcedTickers = new Set(forcedDecisions.map(d => d.ticker));
-      const merged = [
-        ...forcedDecisions,
-        ...aiDecisions.filter(d => !forcedTickers.has(d.ticker)),
-      ];
+      const merged = [...forcedDecisions, ...aiDecisions.filter(d => !forcedTickers.has(d.ticker))];
 
-      const executed = [];
-      const skipped = [];
+      const executed = [], skipped = [];
       let runningCash = Number(acc.cash);
 
       for (const d of merged) {
         const price = ai.prices?.[d.ticker] || 0;
-        if (!price) { skipped.push({ticker:d.ticker, reason:"가격 없음"}); continue; }
+        if (!price) { skipped.push({ ticker: d.ticker, reason: "no price" }); continue; }
         const conf = d.conf || 0;
         const earningsBlackout = !!d.earnings_blackout;
         const isForced = !!d.forced;
 
-        // ── 킬 스위치 사전 검증 (강제 매매는 통과) ──
         if (!isForced) {
-          if (d.action === "BUY" && !killSwitch.allowAiBuy) {
-            skipped.push({ticker:d.ticker, reason:`킬스위치 ${killSwitch.level}: ${killSwitch.reason}`});
-            continue;
-          }
-          if ((d.action === "SELL" || d.action === "TRIM") && !killSwitch.allowAiSell) {
-            skipped.push({ticker:d.ticker, reason:`킬스위치 ${killSwitch.level}: ${killSwitch.reason}`});
-            continue;
-          }
+          if (d.action === "BUY" && !killSwitch.allowAiBuy)  { skipped.push({ticker:d.ticker, reason:`killswitch ${killSwitch.level}`}); continue; }
+          if ((d.action === "SELL" || d.action === "TRIM") && !killSwitch.allowAiSell) { skipped.push({ticker:d.ticker, reason:`killswitch ${killSwitch.level}`}); continue; }
         }
 
         try {
           if (d.action === "BUY" && d.qty > 0) {
-            // 신뢰도 (패닉 시 더 높게)
             const reqConf = panicRegime ? risk.PANIC_BUY_CONF_MIN : risk.BUY_CONF_MIN;
             if (conf < reqConf) { skipped.push({ticker:d.ticker, reason:`conf ${conf.toFixed(2)} < ${reqConf}`}); continue; }
-            if (earningsBlackout) { skipped.push({ticker:d.ticker, reason:"실적 3일 이내"}); continue; }
+            if (earningsBlackout) { skipped.push({ticker:d.ticker, reason:"earnings blackout"}); continue; }
 
-            // FOMC 임박 시 수량 50% 축소
             const adjQty = fomcSoon ? Math.max(1, Math.floor(d.qty * 0.5)) : d.qty;
             const cost = price * adjQty;
 
-            // 최소 거래 금액 (자금 티어 기반)
-            if (cost < risk.MIN_DOLLAR_PER_TRADE) {
-              skipped.push({ticker:d.ticker, reason:`거래액 $${cost.toFixed(0)} < 최소 $${risk.MIN_DOLLAR_PER_TRADE}`});
-              continue;
-            }
+            if (cost < risk.MIN_DOLLAR_PER_TRADE) { skipped.push({ticker:d.ticker, reason:`trade $${cost.toFixed(0)} < min $${risk.MIN_DOLLAR_PER_TRADE}`}); continue; }
 
-            // 최대 포지션 수 (자금 티어 기반)
-            const heldTickers = Object.keys(positionMV).filter(t => positionMV[t] > 0);
+            const heldTickers = Object.keys(positionMV).filter(tk => positionMV[tk] > 0);
             const alreadyHeld = (positionMV[d.ticker] || 0) > 0;
-            if (!alreadyHeld && heldTickers.length >= risk.MAX_POSITIONS) {
-              skipped.push({ticker:d.ticker, reason:`최대 포지션 수 ${risk.MAX_POSITIONS}개 도달`});
-              continue;
-            }
+            if (!alreadyHeld && heldTickers.length >= risk.MAX_POSITIONS) { skipped.push({ticker:d.ticker, reason:`max ${risk.MAX_POSITIONS} positions reached`}); continue; }
 
-            // 현금 플로어
-            const cashFloor = portfolioValue * risk.CASH_FLOOR_PCT;
-            if (runningCash - cost < cashFloor) { skipped.push({ticker:d.ticker, reason:`현금 ${(risk.CASH_FLOOR_PCT*100).toFixed(0)}% 플로어 위반`}); continue; }
+            if (runningCash - cost < portfolioValue * risk.CASH_FLOOR_PCT) { skipped.push({ticker:d.ticker, reason:`cash floor ${(risk.CASH_FLOOR_PCT*100).toFixed(0)}%`}); continue; }
 
-            // 종목 비중 캡
             const newPosMV = (positionMV[d.ticker] || 0) + cost;
-            if (newPosMV / portfolioValue > risk.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`종목 ${(risk.POSITION_CAP_PCT*100).toFixed(0)}% 캡 초과`}); continue; }
+            if (newPosMV / portfolioValue > risk.POSITION_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`position cap ${(risk.POSITION_CAP_PCT*100).toFixed(0)}%`}); continue; }
 
-            // 섹터 캡
-            const sect = TICKER_SECTOR[d.ticker] || "기타";
+            const sect = TICKER_SECTOR[d.ticker] || "OTHER";
             const newSectMV = (sectorMV[sect] || 0) + cost;
-            if (newSectMV / portfolioValue > risk.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`섹터 ${sect} ${(risk.SECTOR_CAP_PCT*100).toFixed(0)}% 캡 초과`}); continue; }
+            if (newSectMV / portfolioValue > risk.SECTOR_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`sector ${sect} cap`}); continue; }
 
-            // 상관관계 그룹 캡
             const grp = groupOf(d.ticker);
             if (grp) {
-              const { mv: grpMV, names: grpNames } = groupExposure(grp, d.ticker);
-              const newGrpMV = grpMV + newPosMV;
-              const newGrpNames = grpNames + (alreadyHeld ? 0 : 1);
-              if (newGrpMV / portfolioValue > risk.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} ${(risk.CORR_GROUP_CAP_PCT*100).toFixed(0)}% 캡 초과`}); continue; }
-              if (newGrpNames > risk.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`그룹 ${grp} 종목 수 초과`}); continue; }
+              const { mv: gmv, names: gnames } = groupExposure(grp, d.ticker);
+              const newGrpMV = gmv + newPosMV;
+              const newGrpNames = gnames + (alreadyHeld ? 0 : 1);
+              if (newGrpMV / portfolioValue > risk.CORR_GROUP_CAP_PCT) { skipped.push({ticker:d.ticker, reason:`group ${grp} cap`}); continue; }
+              if (newGrpNames > risk.CORR_GROUP_MAX_NAMES) { skipped.push({ticker:d.ticker, reason:`group ${grp} names`}); continue; }
             }
 
-            // 지정가 주문 (AI 제공 우선)
-            const limitPrice = d.limit_price && d.limit_price > 0
-              ? d.limit_price
-              : +(price * (1 + risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
-
+            const limitPrice = d.limit_price && d.limit_price > 0 ? d.limit_price : +(price * (1 + risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
             const order = await alpacaCall("/v2/orders", "POST", {
               symbol: d.ticker, qty: String(adjQty), side: "buy",
               type: "limit", limit_price: String(limitPrice), time_in_force: "day",
             });
-            executed.push({action:"BUY", ticker:d.ticker, qty:adjQty, price, limitPrice, orderId:order.id, forced:d.forced||null});
+            executed.push({ action: "BUY", ticker: d.ticker, qty: adjQty, price, limitPrice, orderId: order.id, forced: d.forced || null });
             runningCash -= cost;
             positionMV[d.ticker] = newPosMV;
             sectorMV[sect] = newSectMV;
 
           } else if (d.action === "SELL" || d.action === "TRIM") {
             const holding = pos.find(p => p.symbol === d.ticker);
-            if (!holding) { skipped.push({ticker:d.ticker, reason:"보유 없음"}); continue; }
+            if (!holding) { skipped.push({ticker:d.ticker, reason:"not held"}); continue; }
             const heldQty = Number(holding.qty);
             const cost = Number(holding.avg_entry_price);
             const profitable = price > cost;
@@ -317,10 +383,7 @@ export default function Home() {
             if (conf < reqSellConf) { skipped.push({ticker:d.ticker, reason:`sell conf ${conf.toFixed(2)} < ${reqSellConf}`}); continue; }
 
             const sellQty = Math.min(heldQty, d.qty || heldQty);
-            const limitPrice = d.limit_price && d.limit_price > 0
-              ? d.limit_price
-              : +(price * (1 - risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
-
+            const limitPrice = d.limit_price && d.limit_price > 0 ? d.limit_price : +(price * (1 - risk.LIMIT_SLIPPAGE_PCT)).toFixed(2);
             const order = await alpacaCall("/v2/orders", "POST", {
               symbol: d.ticker, qty: String(sellQty), side: "sell",
               type: "limit", limit_price: String(limitPrice), time_in_force: "day",
@@ -328,50 +391,57 @@ export default function Home() {
             executed.push({
               action: sellQty < heldQty ? "TRIM" : "SELL",
               ticker: d.ticker, qty: sellQty, price, limitPrice, orderId: order.id,
-              pnl: (price - cost) * sellQty,
-              forced: d.forced || null,
+              pnl: (price - cost) * sellQty, forced: d.forced || null,
             });
             runningCash += price * sellQty;
             positionMV[d.ticker] = Math.max(0, (positionMV[d.ticker] || 0) - price * sellQty);
           }
-        } catch(oe) {
-          console.warn(`주문 실패 ${d.ticker}:`, oe.message);
-          skipped.push({ticker:d.ticker, reason:`주문 실패: ${oe.message}`});
+        } catch (oe) {
+          console.warn(`Order failed ${d.ticker}:`, oe.message);
+          skipped.push({ ticker: d.ticker, reason: `order failed: ${oe.message}` });
         }
       }
 
-      await new Promise(r=>setTimeout(r,1000));
-      const final=await loadAccount();
-      const finalAcc=final?.acc||acc;
+      await new Promise(rr => setTimeout(rr, 1000));
+      const final = await loadAccount();
+      const finalAcc = final?.acc || acc;
 
-      const entry={id:Date.now(),ts:new Date().toISOString(),decisions:ai.decisions||[],market:ai.market,news:ai.news||[],risk:ai.risk||"MEDIUM",top_sector:ai.top_sector,outlook:ai.outlook,executed,skipped,regime:ai.regime||null,portfolio_health:ai.portfolio_health||null,value:Number(finalAcc.portfolio_value),cash:Number(finalAcc.cash),prices:ai.prices||{},profile,tier:risk._tier_name,tierLabel:risk._tier_label,drawdowns,killSwitch};
-      const newLog=[entry,...log].slice(0,50);
+      const entry = {
+        id: Date.now(), ts: new Date().toISOString(),
+        decisions: ai.decisions || [], market: ai.market, news: ai.news || [],
+        risk: ai.risk || "MEDIUM", top_sector: ai.top_sector, outlook: ai.outlook,
+        executed, skipped, regime: ai.regime || null,
+        portfolio_health: ai.portfolio_health || null,
+        value: Number(finalAcc.portfolio_value), cash: Number(finalAcc.cash),
+        prices: ai.prices || {}, profile, tier: risk._tier_name,
+        tierLabel: risk._tier_label, drawdowns, killSwitch,
+      };
+      const newLog = [entry, ...log].slice(0, 50);
       setLog(newLog); setExpanded(entry.id);
-      localStorage.setItem("kenos_log",JSON.stringify(newLog));
-      const newHist=[...history,{ts:new Date().toISOString(),v:Number(finalAcc.portfolio_value)}].slice(-200);
+      localStorage.setItem("kenos_log", JSON.stringify(newLog));
+      const newHist = [...history, { ts: new Date().toISOString(), v: Number(finalAcc.portfolio_value) }].slice(-200);
       setHistory(newHist);
-      localStorage.setItem("kenos_hist",JSON.stringify(newHist));
-    } catch(e) { setErr(e.message); }
+      localStorage.setItem("kenos_hist", JSON.stringify(newHist));
+    } catch (e) { setErr(e.message); }
     finally { clearTimeout(t1); clearTimeout(t2); setLoading(false); setStep(""); }
   }, [loading, log, history, profile]);
 
   useEffect(() => {
     if (autoRef.current) clearInterval(autoRef.current);
     if (!autoHours) { setNextRun(null); return; }
-    const ms=autoHours*3600000;
-    setNextRun(new Date(Date.now()+ms));
-    autoRef.current=setInterval(()=>{ setNextRun(new Date(Date.now()+ms)); runAnalysis(); },ms);
-    return ()=>clearInterval(autoRef.current);
+    const ms = autoHours * 3600000;
+    setNextRun(new Date(Date.now() + ms));
+    autoRef.current = setInterval(() => { setNextRun(new Date(Date.now() + ms)); runAnalysis(); }, ms);
+    return () => clearInterval(autoRef.current);
   }, [autoHours]);
 
-  const pv=account?Number(account.portfolio_value):0;
-  const ini=history.length?history[0].v:pv;
-  const pnlD=pv-ini, pnlP=ini?(pnlD/ini)*100:0, up=pnlD>=0, aCol=up?"#00ff88":"#ff4466";
-  const days=history.length?Math.floor((Date.now()-new Date(history[0].ts))/86400000):0;
-  const riskCol={LOW:"#00ff88",MEDIUM:"#ffd700",HIGH:"#ff4466",EXTREME:"#ff4466"};
-  const lastRisk=log[0]?.risk||"—";
+  // Derived view-state
+  const pv = account ? Number(account.portfolio_value) : 0;
+  const ini = history.length ? history[0].v : pv;
+  const pnlD = pv - ini, pnlP = ini ? (pnlD / ini) * 100 : 0, up = pnlD >= 0;
+  const accentColor = up ? c.profit : c.loss;
+  const days = history.length ? Math.floor((Date.now() - new Date(history[0].ts)) / 86400000) : 0;
 
-  // 현재 effective 리스크 (프로파일 + 자금 티어)
   const currentRisk = pv > 0 ? resolveRisk(profile, pv) : null;
   const currentTier = pv > 0 ? getCapitalTier(pv) : null;
   const currentDrawdowns = account ? computeDrawdowns({
@@ -380,314 +450,467 @@ export default function Home() {
     history,
   }) : null;
   const currentKillSwitch = currentDrawdowns ? evaluateKillSwitch(currentDrawdowns) : null;
-  const sells=log.flatMap(e=>e.executed||[]).filter(e=>e.action==="SELL");
-  const wr=sells.length?((sells.filter(e=>(e.pnl||0)>0).length/sells.length)*100).toFixed(0):null;
 
-  const mono={fontFamily:"'Courier New',monospace"};
-  const card=(x={})=>({background:"#0b1726",border:"1px solid #152236",borderRadius:10,padding:"14px 16px",...x});
-  const lbl={fontSize:10,color:"#304560",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:5};
-  const bdg=c=>({display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:c+"22",color:c});
+  const sells = log.flatMap(e => e.executed || []).filter(e => e.action === "SELL");
+  const winRate = sells.length ? ((sells.filter(e => (e.pnl || 0) > 0).length / sells.length) * 100).toFixed(0) : null;
 
+  // ─────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────
   return (
     <>
       <Head>
-        <title>KENOS Trader</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1"/>
-        <meta name="description" content="κένωσις — 자기를 비우고 낮아짐. AI 앙상블 페이퍼 트레이딩"/>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+        <title>KENOS — AI Ensemble Paper Trading</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="description" content="κένωσις — AI ensemble paper trading on Alpaca" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='black'/><text x='50' y='72' font-size='72' fill='white' text-anchor='middle' font-family='Inter' font-weight='700'>M</text></svg>" />
       </Head>
 
-      <div style={{background:"#04080f",minHeight:"100vh",fontFamily:"'DM Sans',system-ui,sans-serif",color:"#d8eaff",padding:"16px",boxSizing:"border-box"}}>
-        <style>{`
-          @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}
-          @keyframes scan{0%{transform:translateX(-200%)}100%{transform:translateX(500%)}}
-          *{box-sizing:border-box}
-          ::-webkit-scrollbar{width:4px}
-          ::-webkit-scrollbar-track{background:#0b1726}
-          ::-webkit-scrollbar-thumb{background:#1e3555;border-radius:2px}
-          input,button{font-family:inherit}
-        `}</style>
+      <style jsx global>{`
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; background: ${c.canvas}; }
+        body { font-family: ${t.fontFamily}; color: ${c.onDark}; }
+        button { font-family: inherit; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: ${c.canvas}; }
+        ::-webkit-scrollbar-thumb { background: ${c.hairline}; }
+        @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
+        @keyframes scan  { 0% { transform: translateX(-100%) } 100% { transform: translateX(500%) } }
+      `}</style>
 
-        {/* 헤더 */}
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14,paddingBottom:12,borderBottom:"1px solid #152236",position:"relative",flexWrap:"wrap",gap:10}}>
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{...mono,fontSize:22,fontWeight:900,color:"#00ff88",letterSpacing:"0.25em"}}>✦ KENOS</div>
-              <div style={{...bdg("#00ff88"),fontSize:10}}>× ALPACA</div>
-              <div style={{...bdg("#4d9fff"),fontSize:10}}>PAPER</div>
-            </div>
-            <div style={{fontSize:11,color:"#304560",marginTop:2,fontStyle:"italic"}}>κένωσις — 자기를 비우고 낮아짐 · AI 앙상블 트레이딩</div>
-            <div style={{marginTop:5,display:"flex",gap:12,flexWrap:"wrap"}}>
-              <span style={{fontSize:11,color:"#304560"}}>📅 Day {days+1}</span>
-              {wr&&<span style={{fontSize:11,color:Number(wr)>50?"#00ff88":"#ff4466"}}>🏆 승률 {wr}%</span>}
-              {nextRun&&<span style={{fontSize:11,color:"#ffd700"}}>⏱ {countdown}</span>}
-            </div>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <span style={{fontSize:10,color:"#304560"}}>강도:</span>
-              {Object.entries(PROFILES).map(([key,p])=>(
-                <button key={key} onClick={()=>setProfile(key)} title={p.description} style={{...mono,padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",border:"1px solid",borderColor:profile===key?(key==="AGGRESSIVE"?"#ff4466":key==="CONSERVATIVE"?"#4d9fff":"#00ff88"):"#1e3555",background:profile===key?(key==="AGGRESSIVE"?"#ff446622":key==="CONSERVATIVE"?"#4d9fff22":"#00ff8822"):"transparent",color:profile===key?(key==="AGGRESSIVE"?"#ff4466":key==="CONSERVATIVE"?"#4d9fff":"#00ff88"):"#304560"}}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <span style={{fontSize:10,color:"#304560"}}>자동실행:</span>
-              {[null,4,8,24].map(h=>(
-                <button key={h} onClick={()=>setAutoHours(h===autoHours?null:h)} style={{...mono,padding:"4px 8px",borderRadius:5,fontSize:10,cursor:"pointer",border:"1px solid",borderColor:autoHours===h?"#00ff88":"#1e3555",background:autoHours===h?"#00ff8822":"transparent",color:autoHours===h?"#00ff88":"#304560"}}>
-                  {h===null?"OFF":`${h}h`}
-                </button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              {lastRisk!=="—"&&<div style={{...bdg(riskCol[lastRisk]||"#ffd700"),padding:"4px 10px"}}>{lastRisk} RISK</div>}
-              <button onClick={loadAccount} style={{background:"transparent",color:"#304560",border:"1px solid #1e3555",padding:"8px 12px",borderRadius:7,fontSize:11,cursor:"pointer"}}>새로고침</button>
-              <button onClick={runAnalysis} disabled={loading} style={{...mono,background:loading?"#0a1a2a":"linear-gradient(135deg,#00ff88,#00cc6a)",color:loading?"#304560":"#03070d",border:"none",padding:"10px 20px",borderRadius:7,fontSize:13,fontWeight:800,cursor:loading?"wait":"pointer",letterSpacing:"0.05em",boxShadow:loading?"none":"0 0 22px #00ff8844",opacity:loading?0.6:1}}>
-                {loading?"분석 중...":"▶ AI 분석 실행"}
-              </button>
-            </div>
-          </div>
-          {loading&&<div style={{position:"absolute",bottom:-1,left:0,right:0,height:2,background:"#0b1726",overflow:"hidden"}}><div style={{height:"100%",width:"35%",background:"#00ff88",animation:"scan 1.8s linear infinite",boxShadow:"0 0 10px #00ff88"}}/></div>}
-        </div>
+      <div style={{ background: c.canvas, minHeight: "100vh", color: c.onDark }}>
 
-        {loading&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#00ff8808",border:"1px solid #00ff8820",borderRadius:6,marginBottom:12}}><div style={{width:7,height:7,borderRadius:"50%",background:"#00ff88",animation:"pulse 1s infinite"}}/><span style={{fontSize:12,color:"#00cc6a",...mono}}>{step}</span></div>}
-        {err&&<div style={{background:"#ff446610",border:"1px solid #ff446630",borderRadius:6,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#ff7799",...mono}}>⚠ {err}</div>}
-
-        {/* 통계 */}
-        {account&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:14}}>
-            {[
-              {label:"총 자산",val:`$${Number(account.portfolio_value).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,sub:null,col:"#d8eaff"},
-              {label:"총 손익",val:`${up?"+":""}$${Math.abs(pnlD).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,sub:`${up?"▲":"▼"} ${Math.abs(pnlP).toFixed(2)}%`,col:aCol},
-              {label:"현금",val:`$${Number(account.cash).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,sub:`${((Number(account.cash)/Number(account.portfolio_value))*100).toFixed(1)}%`,col:"#4d9fff"},
-              {label:"포지션",val:`${positions.length}개`,sub:`${orders.filter(o=>o.status==="filled").length}건 체결`,col:"#ffd700"},
-              {label:"매수력",val:`$${Number(account.buying_power).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}`,sub:"Buying Power",col:"#b44dff"},
-            ].map((c,i)=>(
-              <div key={i} style={card()}>
-                <div style={lbl}>{c.label}</div>
-                <div style={{...mono,fontSize:17,fontWeight:700,color:c.col,lineHeight:1.2}}>{c.val}</div>
-                {c.sub&&<div style={{fontSize:11,color:c.col,marginTop:2,opacity:0.8}}>{c.sub}</div>}
+        {/* ── TOP NAV ─────────────────────────────────── */}
+        <header style={{
+          height: 64, background: c.canvas, borderBottom: `1px solid ${c.hairline}`,
+          padding: `0 ${s.xl}px`, display: "flex", alignItems: "center", justifyContent: "space-between",
+          position: "sticky", top: 0, zIndex: 50,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: s.lg }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+              <div style={{ width: 4, height: 24, background: c.mBlueLight }} />
+              <div style={{ width: 4, height: 24, background: c.mBlueDark }} />
+              <div style={{ width: 4, height: 24, background: c.mRed }} />
+              <div style={{ ...t.titleLG, marginLeft: s.sm, color: c.onDark, letterSpacing: "0.5px", fontWeight: 700, textTransform: "uppercase" }}>
+                KENOS
               </div>
-            ))}
+              <div style={{ ...t.label, color: c.muted, marginLeft: s.md }}>× ALPACA · PAPER</div>
+            </div>
           </div>
-        )}
+          <div style={{ display: "flex", alignItems: "center", gap: s.lg }}>
+            <span style={{ ...t.navLink, color: c.muted }}>DAY {days + 1}</span>
+            {winRate && <span style={{ ...t.navLink, color: Number(winRate) > 50 ? c.profit : c.loss }}>WIN {winRate}%</span>}
+            {nextRun && <span style={{ ...t.navLink, color: c.warning }}>NEXT {countdown}</span>}
+          </div>
+        </header>
 
-        {/* 리스크 프로파일 + 자금 티어 + 킬 스위치 패널 */}
-        {currentRisk && currentKillSwitch && (
-          <div style={{...card(),marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={lbl}>🎯 리스크 프로파일 & 자금 관리</div>
-              {currentKillSwitch.level !== "NORMAL" && (
-                <span style={{...bdg(currentKillSwitch.severity>=2?"#ff4466":"#ffd700"),padding:"3px 10px",fontSize:11}}>
-                  ⚠ {currentKillSwitch.level}
-                </span>
+        <MStripe />
+
+        {/* ── HERO BAND (portfolio value as the "photography") ── */}
+        {account && (
+          <section style={{ padding: `${s.xxl}px ${s.xl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+            <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+              <div style={{ ...t.label, color: c.muted, marginBottom: s.md }}>Portfolio</div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: s.xl, alignItems: "end" }}>
+                <div>
+                  <h1 style={{ ...t.displayXL, color: c.onDark, margin: 0 }}>
+                    ${Number(pv).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </h1>
+                  <div style={{ display: "flex", gap: s.lg, marginTop: s.md, alignItems: "baseline" }}>
+                    <span style={{ ...t.titleMD, color: accentColor }}>
+                      {up ? "+" : "−"}${Math.abs(pnlD).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span style={{ ...t.titleMD, color: accentColor }}>
+                      {up ? "▲" : "▼"} {Math.abs(pnlP).toFixed(2)}%
+                    </span>
+                    <span style={{ ...t.bodySM, color: c.muted }}>since inception</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: s.sm, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <Button variant="ghost" size="md" onClick={loadAccount}>Refresh</Button>
+                  <Button variant="outline" size="md" disabled={loading} onClick={runAnalysis}>
+                    {loading ? "Running…" : "▶ Run Analysis"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Loading bar */}
+              {loading && (
+                <div style={{ marginTop: s.lg, height: 2, background: c.surfaceCard, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: "30%", background: c.onDark, animation: "scan 1.8s linear infinite" }} />
+                </div>
+              )}
+              {loading && (
+                <div style={{ ...t.label, color: c.body, marginTop: s.md, display: "flex", alignItems: "center", gap: s.sm }}>
+                  <span style={{ width: 6, height: 6, background: c.onDark, animation: "pulse 1s infinite" }} />
+                  {step}
+                </div>
+              )}
+              {err && (
+                <div style={{ ...t.bodySM, marginTop: s.md, padding: `${s.sm}px ${s.md}px`, background: c.lossSoft, border: `1px solid ${c.loss}`, color: c.loss }}>
+                  ⚠ {err}
+                </div>
               )}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,fontSize:11,...mono}}>
-              {[
-                ["프로파일", PROFILES[profile].label, profile, "#00ff88"],
-                ["자금 티어", currentTier.label, currentTier.note, "#4d9fff"],
-                ["BUY 신뢰도 ≥", currentRisk.BUY_CONF_MIN.toFixed(2), "VIX패닉 "+currentRisk.PANIC_BUY_CONF_MIN.toFixed(2), "#ffd700"],
-                ["스탑로스", (currentRisk.STOP_LOSS_PCT*100).toFixed(0)+"%", "자동 전량매도", "#ff4466"],
-                ["익절", "+"+(currentRisk.TAKE_PROFIT_PCT*100).toFixed(0)+"%", (currentRisk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)+"% 트림", "#00ff88"],
-                ["종목당", (currentRisk.POSITION_CAP_PCT*100).toFixed(0)+"%", "$"+(pv*currentRisk.POSITION_CAP_PCT).toFixed(0), "#b44dff"],
-                ["섹터당", (currentRisk.SECTOR_CAP_PCT*100).toFixed(0)+"%", "그룹 "+(currentRisk.CORR_GROUP_CAP_PCT*100).toFixed(0)+"%", "#ff8c4d"],
-                ["현금 ≥", (currentRisk.CASH_FLOOR_PCT*100).toFixed(0)+"%", "$"+(pv*currentRisk.CASH_FLOOR_PCT).toFixed(0), "#4d9fff"],
-                ["최대 종목 수", currentRisk.MAX_POSITIONS+"개", "최소 거래 $"+currentRisk.MIN_DOLLAR_PER_TRADE, "#ffd700"],
-              ].map(([k,v,sub,c],i)=>(
-                <div key={i} style={{background:"#07101c",borderRadius:5,padding:"5px 8px",border:"1px solid #152236"}}>
-                  <div style={{fontSize:9,color:"#304560",letterSpacing:"0.08em"}}>{k}</div>
-                  <div style={{color:c,fontWeight:700,fontSize:12,marginTop:1}}>{v}</div>
-                  {sub&&<div style={{fontSize:9,color:"#5a7090",marginTop:1}}>{sub}</div>}
-                </div>
-              ))}
-            </div>
-            {/* 드로다운 상태 */}
-            <div style={{marginTop:8,display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:11,...mono}}>
-              {[
-                ["일일", currentDrawdowns.daily,   KILL_SWITCH_LIMITS.DAILY_LOSS_HALT],
-                ["주간", currentDrawdowns.weekly,  KILL_SWITCH_LIMITS.WEEKLY_LOSS_HALT],
-                ["월간", currentDrawdowns.monthly, KILL_SWITCH_LIMITS.MONTHLY_LOSS_HALT],
-              ].map(([label,val,limit],i)=>{
-                const breached = val <= limit;
-                const col = breached ? "#ff4466" : val < 0 ? "#ffd700" : "#00ff88";
-                return (
-                  <div key={i} style={{background:"#07101c",borderRadius:5,padding:"6px 10px",border:"1px solid "+(breached?"#ff446644":"#152236")}}>
-                    <div style={{fontSize:9,color:"#304560",letterSpacing:"0.08em"}}>{label} PnL</div>
-                    <div style={{color:col,fontWeight:700,fontSize:13,marginTop:1}}>
-                      {val>0?"+":""}{(val*100).toFixed(2)}%
-                    </div>
-                    <div style={{fontSize:9,color:"#5a7090"}}>한도 {(limit*100).toFixed(0)}%</div>
-                  </div>
-                );
-              })}
-            </div>
-            {currentKillSwitch.reason && (
-              <div style={{marginTop:8,padding:"6px 10px",background:"#ff446610",border:"1px solid #ff446630",borderRadius:5,fontSize:11,color:"#ff7799"}}>
-                🛑 {currentKillSwitch.reason}
-              </div>
-            )}
-          </div>
+          </section>
         )}
 
-        {/* 거시 환경 패널 */}
-        {log[0]?.regime&&(
-          <div style={{...card(),marginBottom:14}}>
-            <div style={{...lbl,marginBottom:8}}>🌍 거시 환경 (Regime)</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,fontSize:11,...mono}}>
+        {/* ── PROFILE + AUTO ─────────────────────────── */}
+        <section style={{ background: c.surfaceSoft, padding: `${s.lg}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+          <div style={{ maxWidth: 1440, margin: "0 auto", display: "flex", justifyContent: "space-between", gap: s.lg, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: s.md }}>
+              <span style={{ ...t.label, color: c.muted }}>Intensity</span>
+              <div style={{ display: "flex", gap: s.xs }}>
+                {Object.entries(PROFILES).map(([key, p]) => {
+                  const accent = key === "AGGRESSIVE" ? c.mRed : key === "CONSERVATIVE" ? c.mBlueLight : c.onDark;
+                  return (
+                    <ToggleButton key={key} active={profile === key} accent={accent}
+                      onClick={() => setProfile(key)} title={p.description}>
+                      {key}
+                    </ToggleButton>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: s.md }}>
+              <span style={{ ...t.label, color: c.muted }}>Auto</span>
+              <div style={{ display: "flex", gap: s.xs }}>
+                {[null, 4, 8, 24].map(h => (
+                  <ToggleButton key={String(h)} active={autoHours === h} onClick={() => setAutoHours(h === autoHours ? null : h)}>
+                    {h === null ? "Off" : `${h}h`}
+                  </ToggleButton>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── SPEC ROW (4-up account stats) ──────────── */}
+        {account && (
+          <section style={{ padding: `${s.xxl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+            <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+              <SectionHeader kicker="Account" title="Capital Snapshot" />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 1, background: c.hairline, border: `1px solid ${c.hairline}` }}>
+                <StatCell label="Portfolio" value={`$${Number(pv).toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
+                <StatCell label="Cash" value={`$${Number(account.cash).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+                  sub={`${((Number(account.cash) / pv) * 100).toFixed(1)}% of portfolio`} />
+                <StatCell label="Positions" value={positions.length} sub={`${orders.filter(o => o.status === "filled").length} filled orders`} />
+                <StatCell label="Buying Power" value={`$${Number(account.buying_power).toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── RISK PROFILE + KILL SWITCH ─────────────── */}
+        {currentRisk && currentKillSwitch && (
+          <section style={{ padding: `${s.xxl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+            <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+              <SectionHeader
+                kicker="Capital Management"
+                title={`${profile} · ${currentTier.label.replace(/^[^A-Za-z]+\s*/, "")}`}
+                right={currentKillSwitch.level !== "NORMAL" && (
+                  <Badge tone={currentKillSwitch.severity >= 2 ? "loss" : "warning"}>{currentKillSwitch.level}</Badge>
+                )}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 1, background: c.hairline, border: `1px solid ${c.hairline}`, marginBottom: s.lg }}>
+                <SpecCell label="Buy Conf ≥" value={currentRisk.BUY_CONF_MIN.toFixed(2)} sub={`Panic ${currentRisk.PANIC_BUY_CONF_MIN.toFixed(2)}`} />
+                <SpecCell label="Stop-Loss"  value={`${(currentRisk.STOP_LOSS_PCT*100).toFixed(0)}%`}  sub="Auto full exit" valueColor={c.loss} />
+                <SpecCell label="Take-Profit" value={`+${(currentRisk.TAKE_PROFIT_PCT*100).toFixed(0)}%`} sub={`${(currentRisk.TAKE_PROFIT_TRIM_PCT*100).toFixed(0)}% trim`} valueColor={c.profit} />
+                <SpecCell label="Per Position" value={`${(currentRisk.POSITION_CAP_PCT*100).toFixed(0)}%`} sub={`$${(pv*currentRisk.POSITION_CAP_PCT).toLocaleString("en-US", {maximumFractionDigits:0})}`} />
+                <SpecCell label="Per Sector"   value={`${(currentRisk.SECTOR_CAP_PCT*100).toFixed(0)}%`} sub={`Group ${(currentRisk.CORR_GROUP_CAP_PCT*100).toFixed(0)}%`} />
+                <SpecCell label="Cash Floor ≥" value={`${(currentRisk.CASH_FLOOR_PCT*100).toFixed(0)}%`} sub={`$${(pv*currentRisk.CASH_FLOOR_PCT).toLocaleString("en-US", {maximumFractionDigits:0})}`} />
+                <SpecCell label="Max Positions" value={currentRisk.MAX_POSITIONS} sub={`Min trade $${currentRisk.MIN_DOLLAR_PER_TRADE}`} />
+              </div>
+
+              <div style={{ ...t.label, color: c.muted, marginBottom: s.sm }}>Drawdown Monitor</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: c.hairline, border: `1px solid ${c.hairline}` }}>
+                {[
+                  ["Daily P&L",   currentDrawdowns.daily,   KILL_SWITCH_LIMITS.DAILY_LOSS_HALT],
+                  ["Weekly P&L",  currentDrawdowns.weekly,  KILL_SWITCH_LIMITS.WEEKLY_LOSS_HALT],
+                  ["Monthly P&L", currentDrawdowns.monthly, KILL_SWITCH_LIMITS.MONTHLY_LOSS_HALT],
+                ].map(([label, val, lim], i) => {
+                  const breached = val <= lim;
+                  const col = breached ? c.loss : val < 0 ? c.warning : c.profit;
+                  return (
+                    <SpecCell key={i}
+                      label={label}
+                      value={`${val > 0 ? "+" : ""}${(val * 100).toFixed(2)}%`}
+                      sub={`Halt at ${(lim*100).toFixed(0)}%`}
+                      valueColor={col}
+                    />
+                  );
+                })}
+              </div>
+
+              {currentKillSwitch.reason && (
+                <div style={{ ...t.bodySM, marginTop: s.md, padding: `${s.sm}px ${s.md}px`, background: c.lossSoft, border: `1px solid ${c.loss}`, color: c.loss }}>
+                  KILL SWITCH — {currentKillSwitch.reason}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* ── MACRO REGIME ─────────────────────────── */}
+        {log[0]?.regime && (
+          <section style={{ padding: `${s.xxl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+            <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+              <SectionHeader kicker="Macro" title="Regime"
+                right={log[0].regime.overall_risk_regime && (
+                  <Badge tone={log[0].regime.overall_risk_regime === "panic" ? "loss" : log[0].regime.overall_risk_regime === "risk_on" ? "profit" : "warning"}>
+                    {log[0].regime.overall_risk_regime}
+                  </Badge>
+                )}
+              />
               {(() => {
                 const g = log[0].regime;
                 const items = [
-                  ["VIX", g.vix?.toFixed(1), g.vix_state, g.vix>30?"#ff4466":g.vix>20?"#ffd700":"#00ff88"],
-                  ["10Y", g.us10y?.toFixed(2)+"%", `2Y ${g.us2y?.toFixed(2)}%`, "#4d9fff"],
-                  ["10Y-2Y", g.yield_curve_bps+"bps", g.yield_curve_bps<0?"역전":"정상", g.yield_curve_bps<0?"#ff4466":"#00ff88"],
-                  ["DXY", g.dxy?.toFixed(2), g.dxy_trend, "#b44dff"],
-                  ["WTI", "$"+g.wti?.toFixed(2), `5d ${g.wti_5d_pct>0?"+":""}${g.wti_5d_pct?.toFixed(1)}%`, "#ffb84d"],
-                  ["BTC", "$"+Math.round(g.btc||0).toLocaleString(), "", "#ff8c4d"],
-                  ["Gold", "$"+Math.round(g.gold||0).toLocaleString(), "", "#ffd700"],
-                  ["USD/KRW", g.usdkrw?.toFixed(0), "", "#4d9fff"],
-                  ["FOMC", g.next_fomc_date||"—", g.fomc_within_2d?"임박":"여유", g.fomc_within_2d?"#ff4466":"#8090a8"],
-                  ["Credit", g.credit_spreads, "", g.credit_spreads==="widening"?"#ff4466":"#00ff88"],
-                  ["Regime", g.overall_risk_regime, "", g.overall_risk_regime==="panic"?"#ff4466":g.overall_risk_regime==="risk_on"?"#00ff88":"#ffd700"],
+                  ["VIX", g.vix?.toFixed(1), g.vix_state, g.vix > 30 ? c.loss : g.vix > 20 ? c.warning : c.profit],
+                  ["US 10Y", g.us10y?.toFixed(2) + "%", `2Y ${g.us2y?.toFixed(2)}%`, c.onDark],
+                  ["10Y−2Y", `${g.yield_curve_bps}bps`, g.yield_curve_bps < 0 ? "Inverted" : "Normal", g.yield_curve_bps < 0 ? c.loss : c.profit],
+                  ["DXY", g.dxy?.toFixed(2), g.dxy_trend, c.onDark],
+                  ["WTI", `$${g.wti?.toFixed(2)}`, `5d ${g.wti_5d_pct > 0 ? "+" : ""}${g.wti_5d_pct?.toFixed(1)}%`, c.onDark],
+                  ["BTC", `$${Math.round(g.btc || 0).toLocaleString()}`, "—", c.onDark],
+                  ["GOLD", `$${Math.round(g.gold || 0).toLocaleString()}`, "—", c.onDark],
+                  ["FOMC", g.next_fomc_date || "—", g.fomc_within_2d ? "Within 2d" : "Clear", g.fomc_within_2d ? c.loss : c.muted],
+                  ["Credit", g.credit_spreads || "—", "spreads", g.credit_spreads === "widening" ? c.loss : c.profit],
                 ];
-                return items.map(([k,v,sub,c],i)=>(
-                  <div key={i} style={{background:"#07101c",borderRadius:5,padding:"5px 8px",border:"1px solid #152236"}}>
-                    <div style={{fontSize:9,color:"#304560",letterSpacing:"0.08em"}}>{k}</div>
-                    <div style={{color:c,fontWeight:700,fontSize:12,marginTop:1}}>{v||"—"}</div>
-                    {sub&&<div style={{fontSize:9,color:"#5a7090",marginTop:1}}>{sub}</div>}
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 1, background: c.hairline, border: `1px solid ${c.hairline}` }}>
+                    {items.map(([label, val, sub, col], i) => (
+                      <SpecCell key={i} label={label} value={val || "—"} sub={sub} valueColor={col} />
+                    ))}
                   </div>
-                ));
+                );
               })()}
+              {log[0].portfolio_health?.correlation_warnings?.length > 0 && (
+                <div style={{ marginTop: s.md, padding: `${s.sm}px ${s.md}px`, background: c.warningSoft, border: `1px solid ${c.warning}`, ...t.bodySM, color: c.warning }}>
+                  ⚠ {log[0].portfolio_health.correlation_warnings.join(" · ")}
+                </div>
+              )}
             </div>
-            {log[0].portfolio_health?.correlation_warnings?.length>0&&(
-              <div style={{marginTop:8,padding:"6px 10px",background:"#ff446610",border:"1px solid #ff446630",borderRadius:5,fontSize:11,color:"#ff7799"}}>
-                ⚠ {log[0].portfolio_health.correlation_warnings.join(" · ")}
+          </section>
+        )}
+
+        {/* ── CHART + MARKET OUTLOOK 2-UP ─────────── */}
+        {(history.length > 0 || log[0]) && (
+          <section style={{ padding: `${s.xxl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+            <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+              <SectionHeader kicker="Performance" title="Trend & Outlook" />
+              <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: s.lg }}>
+                <div style={{ background: c.surfaceSoft, border: `1px solid ${c.hairlineStrong}`, padding: s.lg, height: 200 }}>
+                  <div style={{ ...t.label, color: c.muted, marginBottom: s.sm }}>Equity Curve</div>
+                  <div style={{ height: 140 }}><Chart history={history} lineColor={accentColor} /></div>
+                </div>
+                <div style={{ background: c.surfaceSoft, border: `1px solid ${c.hairlineStrong}`, padding: s.lg }}>
+                  <div style={{ ...t.label, color: c.muted, marginBottom: s.sm }}>AI Market Read</div>
+                  <p style={{ ...t.bodyMD, color: c.bodyStrong, margin: 0, marginBottom: s.md }}>
+                    {log[0]?.market || "Run analysis to populate."}
+                  </p>
+                  {log[0]?.outlook && (
+                    <div style={{ ...t.bodySM, color: c.body, paddingTop: s.sm, borderTop: `1px solid ${c.hairlineStrong}` }}>
+                      <span style={{ ...t.label, color: c.muted, marginRight: s.sm }}>Outlook</span>
+                      {log[0].outlook}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── POSITIONS ──────────────────────────── */}
+        <section style={{ padding: `${s.xxl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+          <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+            <SectionHeader kicker="Holdings" title="Positions" right={<Badge>{positions.length}</Badge>} />
+            {positions.length === 0 ? (
+              <div style={{ ...t.bodyMD, color: c.muted, padding: `${s.xl}px 0`, textAlign: "center", border: `1px solid ${c.hairline}` }}>
+                No open positions — KENOS scanning for opportunities.
+              </div>
+            ) : (
+              <div style={{ border: `1px solid ${c.hairline}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: "100px 70px 110px 110px 130px 1fr", gap: s.md, padding: `${s.sm}px ${s.md}px`, background: c.surfaceSoft, borderBottom: `1px solid ${c.hairline}` }}>
+                  {["Ticker","Qty","Avg","Current","P&L","Sector"].map((h,i)=>(
+                    <div key={i} style={{ ...t.label, color: c.muted }}>{h}</div>
+                  ))}
+                </div>
+                {positions.map(pos => {
+                  const cost = Number(pos.avg_entry_price), cur = Number(pos.current_price), qty = Number(pos.qty);
+                  const pd = (cur - cost) * qty, pp = ((cur - cost) / cost) * 100, pu = pd >= 0;
+                  return (
+                    <div key={pos.symbol} style={{ display: "grid", gridTemplateColumns: "100px 70px 110px 110px 130px 1fr", gap: s.md, padding: `${s.md}px`, borderBottom: `1px solid ${c.hairlineStrong}`, alignItems: "center" }}>
+                      <div style={{ ...t.titleLG, color: c.onDark, fontWeight: 700 }}>{pos.symbol}</div>
+                      <div style={{ ...t.bodyMD, color: c.body, fontVariantNumeric: "tabular-nums" }}>{qty}</div>
+                      <div style={{ ...t.bodyMD, color: c.muted, fontVariantNumeric: "tabular-nums" }}>${cost.toFixed(2)}</div>
+                      <div style={{ ...t.bodyMD, color: c.onDark, fontVariantNumeric: "tabular-nums" }}>${cur.toFixed(2)}</div>
+                      <div style={{ fontVariantNumeric: "tabular-nums" }}>
+                        <div style={{ ...t.bodyMD, color: pu ? c.profit : c.loss, fontWeight: 700 }}>{pu ? "+" : ""}${pd.toFixed(2)}</div>
+                        <div style={{ ...t.caption, color: pu ? c.profit : c.loss }}>{pu ? "+" : ""}{pp.toFixed(2)}%</div>
+                      </div>
+                      <div style={{ ...t.label, color: c.muted }}>{TICKER_SECTOR[pos.symbol] || "OTHER"}</div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
-        )}
+        </section>
 
-        {/* 차트 + 분석 */}
-        <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:10,marginBottom:14}}>
-          <div style={{...card(),height:145}}>
-            <div style={lbl}>수익률 추이</div>
-            <div style={{height:105}}><Chart history={history} color={aCol}/></div>
-          </div>
-          <div style={card()}>
-            <div style={lbl}>🌐 AI 시장 분석</div>
-            <div style={{fontSize:12.5,color:"#8090a8",lineHeight:1.55,marginBottom:6}}>{log[0]?.market||"▶ AI 분석 실행 시 업데이트"}</div>
-            {log[0]?.outlook&&<div style={{fontSize:11,color:"#4d9fff",background:"#4d9fff11",borderRadius:5,padding:"5px 8px"}}>📊 {log[0].outlook}</div>}
-          </div>
+        {/* ── M STRIPE BREAK ─────────────────── */}
+        <div style={{ maxWidth: 1440, margin: "0 auto", padding: `${s.lg}px ${s.xl}px` }}>
+          <MStripe />
         </div>
 
-        {/* 포지션 */}
-        <div style={{...card(),marginBottom:14}}>
-          <div style={{...lbl,marginBottom:10}}>📊 Alpaca 실제 포지션</div>
-          {positions.length===0
-            ? <div style={{color:"#1e3555",fontSize:13,textAlign:"center",padding:"18px 0"}}>포지션 없음 — KENOS가 기회를 탐색 중</div>
-            : positions.map(pos=>{
-                const cost=Number(pos.avg_entry_price),cur=Number(pos.current_price),qty=Number(pos.qty);
-                const pd=(cur-cost)*qty,pp=((cur-cost)/cost)*100,pu=pd>=0;
-                return (
-                  <div key={pos.symbol} style={{display:"grid",gridTemplateColumns:"80px 60px 90px 90px 110px 1fr",gap:8,padding:"7px 0",borderBottom:"1px solid #0d1a2e",alignItems:"center",fontSize:13}}>
-                    <div style={{...mono,fontWeight:700,color:"#4d9fff"}}>{pos.symbol}</div>
-                    <div style={mono}>{qty}</div>
-                    <div style={{...mono,color:"#8090a8"}}>${cost.toFixed(2)}</div>
-                    <div style={mono}>${cur.toFixed(2)}</div>
-                    <div style={{...mono,color:pu?"#00ff88":"#ff4466",fontSize:12}}>{pu?"+":""}{pd.toFixed(2)}<br/><span style={{fontSize:10,opacity:0.8}}>({pu?"+":""}{pp.toFixed(1)}%)</span></div>
-                    <div style={{fontSize:11,color:SECTOR_COLORS[TICKER_SECTOR[pos.symbol]]||"#8090a8"}}>{TICKER_SECTOR[pos.symbol]||"기타"}</div>
-                  </div>
-                );
-              })
-          }
-        </div>
-
-        {/* AI 로그 */}
-        <div style={{...card(),marginBottom:14}}>
-          <div style={{...lbl,marginBottom:10}}>🤖 AI 분석 로그</div>
-          {log.length===0
-            ? <div style={{color:"#1e3555",fontSize:13,textAlign:"center",padding:"16px 0"}}>아직 분석 없음</div>
-            : <div style={{maxHeight:380,overflowY:"auto"}}>
-                {log.map(entry=>(
-                  <div key={entry.id} style={{borderBottom:"1px solid #0d1a2e",padding:"10px 0"}}>
-                    <div onClick={()=>setExpanded(expanded===entry.id?null:entry.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:5}}>
-                      <div style={{fontSize:11,color:"#304560",...mono}}>{new Date(entry.ts).toLocaleString("ko-KR")}</div>
-                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{...mono,fontSize:12,color:"#ffd700"}}>${entry.value?.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                        <span style={bdg(riskCol[entry.risk]||"#ffd700")}>{entry.risk}</span>
-                        {entry.executed?.length>0&&<span style={bdg("#4d9fff")}>{entry.executed.length}건</span>}
-                        <span style={{color:"#304560"}}>{expanded===entry.id?"▲":"▼"}</span>
+        {/* ── AI DECISION LOG ───────────────── */}
+        <section style={{ padding: `${s.lg}px ${s.xl}px ${s.xxl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+          <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+            <SectionHeader kicker="Intelligence" title="AI Decision Log" right={<Badge>{log.length}</Badge>} />
+            {log.length === 0 ? (
+              <div style={{ ...t.bodyMD, color: c.muted, padding: `${s.xl}px 0`, textAlign: "center", border: `1px solid ${c.hairline}` }}>
+                No analyses yet.
+              </div>
+            ) : (
+              <div style={{ maxHeight: 500, overflowY: "auto", border: `1px solid ${c.hairline}` }}>
+                {log.map(entry => (
+                  <div key={entry.id} style={{ borderBottom: `1px solid ${c.hairlineStrong}`, padding: s.md, background: c.surfaceSoft }}>
+                    <div onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: s.sm, flexWrap: "wrap", gap: s.sm }}>
+                      <div style={{ ...t.bodySM, color: c.muted }}>{new Date(entry.ts).toLocaleString("en-US")}</div>
+                      <div style={{ display: "flex", gap: s.sm, alignItems: "center", flexWrap: "wrap" }}>
+                        {entry.profile && <Badge>{entry.profile}</Badge>}
+                        <span style={{ ...t.bodyMD, fontWeight: 700, color: c.onDark, fontVariantNumeric: "tabular-nums" }}>
+                          ${entry.value?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <Badge tone={entry.risk === "HIGH" || entry.risk === "EXTREME" ? "loss" : entry.risk === "MEDIUM" ? "warning" : "profit"}>{entry.risk}</Badge>
+                        {entry.executed?.length > 0 && <Badge tone="info">{entry.executed.length} exec</Badge>}
+                        <span style={{ ...t.label, color: c.muted }}>{expanded === entry.id ? "▲" : "▼"}</span>
                       </div>
                     </div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                      {(entry.decisions||[]).filter(d=>d.action!=="HOLD").map((d,i)=>(
-                        <div key={i} style={{display:"flex",gap:4,alignItems:"center",background:"#0a1520",borderRadius:5,padding:"3px 8px",fontSize:11}}>
-                          <span style={bdg(d.action==="BUY"?"#00ff88":"#ff4466")}>{d.action}</span>
-                          <span style={{...mono,color:"#4d9fff"}}>{d.ticker}</span>
-                          <span style={{color:"#8090a8"}}>{d.reasoning?.slice(0,50)}</span>
-                          <span style={{...mono,color:"#ffd700",fontSize:10}}>{(d.conf*100).toFixed(0)}%</span>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: s.xs }}>
+                      {(entry.decisions || []).filter(d => d.action !== "HOLD").map((d, i) => (
+                        <div key={i} style={{ display: "flex", gap: s.xs, alignItems: "center", border: `1px solid ${c.hairlineStrong}`, padding: "4px 8px", ...t.bodySM }}>
+                          <Badge tone={d.action === "BUY" ? "profit" : "loss"}>{d.action}</Badge>
+                          <span style={{ color: c.onDark, fontWeight: 700 }}>{d.ticker}</span>
+                          <span style={{ color: c.body, fontWeight: 300 }}>{d.reasoning?.slice(0, 60)}</span>
+                          <span style={{ color: c.muted, fontVariantNumeric: "tabular-nums" }}>{(d.conf * 100).toFixed(0)}%</span>
                         </div>
                       ))}
-                      {!(entry.decisions||[]).filter(d=>d.action!=="HOLD").length&&<span style={{color:"#1e3555",fontSize:12}}>HOLD — 신뢰도 기준 미달</span>}
+                      {!(entry.decisions || []).filter(d => d.action !== "HOLD").length && (
+                        <div style={{ ...t.bodySM, color: c.muted }}>HOLD — confidence below threshold</div>
+                      )}
                     </div>
-                    {expanded===entry.id&&(
-                      <div style={{marginTop:8}}>
-                        {(entry.decisions||[]).filter(d=>d.action!=="HOLD").slice(0,3).length>0&&(
-                          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
-                            {(entry.decisions||[]).filter(d=>d.action!=="HOLD").slice(0,3).map((d,i)=>(
-                              <div key={i} style={{background:"#07101c",borderRadius:6,padding:"8px 10px",border:"1px solid #152236"}}>
-                                <div style={{...mono,fontSize:12,color:"#4d9fff",marginBottom:5,fontWeight:700}}>{d.ticker}</div>
-                                <Bar val={d.tech||0} label="기술적 35%"/>
-                                <Bar val={d.sent||0} label="감성 30%"/>
-                                <Bar val={d.macro||0} label="거시 35%"/>
-                                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#304560",marginTop:3}}>
-                                  <span>신뢰도</span><span style={{color:"#ffd700",...mono}}>{(d.conf*100).toFixed(0)}%</span>
+
+                    {expanded === entry.id && (
+                      <div style={{ marginTop: s.md }}>
+                        {(entry.decisions || []).filter(d => d.action !== "HOLD").slice(0, 3).length > 0 && (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: s.sm, marginBottom: s.md }}>
+                            {(entry.decisions || []).filter(d => d.action !== "HOLD").slice(0, 3).map((d, i) => (
+                              <div key={i} style={{ background: c.canvas, border: `1px solid ${c.hairlineStrong}`, padding: s.sm }}>
+                                <div style={{ ...t.titleLG, color: c.onDark, marginBottom: s.xs }}>{d.ticker}</div>
+                                <ScoreBar val={d.tech || 0}  label="Tech 35%" />
+                                <ScoreBar val={d.sent || 0}  label="Sent 30%" />
+                                <ScoreBar val={d.macro || 0} label="Macro 35%" />
+                                <div style={{ display: "flex", justifyContent: "space-between", ...t.labelSm, color: c.muted, marginTop: 6 }}>
+                                  <span>Confidence</span>
+                                  <span style={{ color: c.onDark }}>{(d.conf * 100).toFixed(0)}%</span>
                                 </div>
                               </div>
                             ))}
                           </div>
                         )}
-                        {entry.skipped?.length>0&&(
-                          <div style={{marginTop:6,padding:"5px 8px",background:"#ff8c4d10",border:"1px solid #ff8c4d30",borderRadius:5}}>
-                            <div style={{fontSize:10,color:"#ff8c4d",marginBottom:3,letterSpacing:"0.08em"}}>🛡 가드레일 차단</div>
-                            {entry.skipped.map((s,i)=>(
-                              <div key={i} style={{fontSize:10,color:"#b08560",...mono}}>{s.ticker}: {s.reason}</div>
+                        {entry.skipped?.length > 0 && (
+                          <div style={{ marginBottom: s.sm, padding: s.sm, border: `1px solid ${c.warning}`, background: c.warningSoft }}>
+                            <div style={{ ...t.label, color: c.warning, marginBottom: s.xs }}>Guardrails blocked</div>
+                            {entry.skipped.map((sk, i) => (
+                              <div key={i} style={{ ...t.bodySM, color: c.bodyStrong }}>
+                                <span style={{ fontWeight: 700 }}>{sk.ticker}</span> — {sk.reason}
+                              </div>
                             ))}
                           </div>
                         )}
-                        {(entry.news||[]).map((n,i)=><div key={i} style={{fontSize:11,color:"#304560",padding:"3px 0",borderTop:"1px solid #0d1a2e"}}>📰 {n}</div>)}
+                        {(entry.news || []).map((n, i) => (
+                          <div key={i} style={{ ...t.bodySM, color: c.muted, padding: `${s.xs}px 0`, borderTop: `1px solid ${c.hairlineStrong}` }}>
+                            {n}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
                 ))}
               </div>
-          }
-        </div>
-
-        {/* 주문 내역 */}
-        {orders.length>0&&(
-          <div style={card()}>
-            <div style={{...lbl,marginBottom:8}}>📋 Alpaca 주문 내역</div>
-            {orders.slice(0,10).map((o,i)=>{
-              const col=o.side==="buy"?"#00ff88":o.status==="canceled"?"#ff8c4d":"#ff4466";
-              const sc={filled:"#00ff88",canceled:"#ff8c4d",pending_new:"#ffd700",new:"#ffd700"}[o.status]||"#8090a8";
-              return (
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid #0d1a2e",fontSize:12}}>
-                  <span style={bdg(col)}>{o.side==="buy"?"매수":"매도"}</span>
-                  <span style={{...mono,color:"#4d9fff",minWidth:50}}>{o.symbol}</span>
-                  <span style={{...mono,color:"#8090a8"}}>{o.qty}주</span>
-                  <span style={bdg(sc)}>{o.status}</span>
-                  <span style={{fontSize:10,color:"#1e3555",...mono}}>{new Date(o.created_at).toLocaleDateString("ko-KR")}</span>
-                </div>
-              );
-            })}
+            )}
           </div>
+        </section>
+
+        {/* ── ORDER HISTORY ─────────────────── */}
+        {orders.length > 0 && (
+          <section style={{ padding: `${s.xxl}px ${s.xl}px`, borderBottom: `1px solid ${c.hairline}` }}>
+            <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+              <SectionHeader kicker="Activity" title="Order History" right={<Badge>{orders.slice(0,10).length} of {orders.length}</Badge>} />
+              <div style={{ border: `1px solid ${c.hairline}` }}>
+                {orders.slice(0, 10).map((o, i) => {
+                  const tone = o.side === "buy" ? "profit" : o.status === "canceled" ? "warning" : "loss";
+                  return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 100px 80px 120px 1fr", gap: s.md, alignItems: "center", padding: `${s.sm}px ${s.md}px`, borderBottom: `1px solid ${c.hairlineStrong}` }}>
+                      <Badge tone={tone}>{o.side === "buy" ? "BUY" : "SELL"}</Badge>
+                      <div style={{ ...t.bodyMD, color: c.onDark, fontWeight: 700 }}>{o.symbol}</div>
+                      <div style={{ ...t.bodyMD, color: c.body, fontVariantNumeric: "tabular-nums" }}>{o.qty}</div>
+                      <Badge tone={o.status === "filled" ? "profit" : o.status === "canceled" ? "warning" : "default"}>{o.status}</Badge>
+                      <div style={{ ...t.bodySM, color: c.muted, textAlign: "right" }}>{new Date(o.created_at).toLocaleString("en-US")}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
         )}
 
-        <div style={{textAlign:"center",marginTop:14,fontSize:10,color:"#0d1a2e"}}>
-          ✦ KENOS · κένωσις · AI 앙상블 페이퍼 트레이딩 · 실제 금전 거래 아님
-        </div>
+        {/* ── FOOTER ───────────────────────── */}
+        <MStripe />
+        <footer style={{ background: c.canvas, padding: `${s.xxl}px ${s.xl}px ${s.xl}px`, color: c.muted }}>
+          <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: s.xl, marginBottom: s.xl }}>
+              <div>
+                <div style={{ ...t.label, color: c.onDark, marginBottom: s.md }}>KENOS</div>
+                <div style={{ ...t.bodySM, color: c.muted, lineHeight: 1.7 }}>
+                  κένωσις — self-emptying.<br/>
+                  AI ensemble paper trading.<br/>
+                  Powered by Claude × Alpaca.
+                </div>
+              </div>
+              <div>
+                <div style={{ ...t.label, color: c.onDark, marginBottom: s.md }}>System</div>
+                <div style={{ ...t.bodySM, color: c.muted, lineHeight: 1.8 }}>
+                  Profile · {profile}<br/>
+                  Tier · {currentTier?.label || "—"}<br/>
+                  Day {days + 1}
+                </div>
+              </div>
+              <div>
+                <div style={{ ...t.label, color: c.onDark, marginBottom: s.md }}>Stack</div>
+                <div style={{ ...t.bodySM, color: c.muted, lineHeight: 1.8 }}>
+                  Next.js 14<br/>
+                  Alpaca Paper Trading<br/>
+                  Claude Sonnet
+                </div>
+              </div>
+              <div>
+                <div style={{ ...t.label, color: c.onDark, marginBottom: s.md }}>Disclaimer</div>
+                <div style={{ ...t.bodySM, color: c.muted, lineHeight: 1.6 }}>
+                  Paper trading only. No real capital at risk. Not investment advice. Educational use.
+                </div>
+              </div>
+            </div>
+            <div style={{ borderTop: `1px solid ${c.hairlineStrong}`, paddingTop: s.md, display: "flex", justifyContent: "space-between", ...t.caption, color: c.muted }}>
+              <span>© KENOS · κένωσις</span>
+              <span>v1.0 — Paper Trading</span>
+            </div>
+          </div>
+        </footer>
       </div>
     </>
   );
