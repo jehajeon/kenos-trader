@@ -362,7 +362,7 @@ NEWS RULES:
 function extractJson(text) {
   if (!text) return null;
 
-  // 1) Strip markdown code fences if Claude wraps the JSON in ```json … ```
+  // 1) Strip markdown code fences if the LLM wraps the JSON in ```json … ```
   let s = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*$/g, "").trim();
 
   // 2) Slice from first '{' to the matching last '}' to drop any surrounding prose
