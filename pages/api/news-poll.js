@@ -4,8 +4,8 @@
 // Fetches RSS feeds in parallel, classifies severity by keyword regex (NO LLM),
 // and triggers /api/auto-run on HIGH severity (off-cycle "breaking" analysis).
 //
-// Cost: $0 — pure RSS + regex classification.
-// Claude only invoked when HIGH severity detected → triggers auto-run.
+// Cost: $0 — pure RSS + regex classification (no LLM in this endpoint).
+// LLM (Gemini 2.5 Pro) invoked only when HIGH severity detected → triggers auto-run.
 
 const FEEDS = [
   // Markets / business
