@@ -908,6 +908,7 @@ export default function Home() {
                       style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", flexWrap: "wrap", gap: s.sm }}>
                       <div style={{ display: "flex", gap: s.sm, alignItems: "center", flexWrap: "wrap" }}>
                         <span style={{ ...t.captionMono, color: c.mute }}>{fmtDay(entry.ts)} {fmtTime(entry.ts)}</span>
+                        {entry.breaking && <MonoBadge tone="error">🚨 breaking</MonoBadge>}
                         {entry.profile && <MonoBadge>{entry.profile.toLowerCase()}</MonoBadge>}
                         <MonoBadge tone={entry.risk === "HIGH" || entry.risk === "EXTREME" ? "error" : entry.risk === "MEDIUM" ? "warning" : "success"}>
                           {entry.risk.toLowerCase()}
