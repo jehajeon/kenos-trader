@@ -69,6 +69,22 @@ export default async function handler(req, res) {
     weekday:"long", month:"long", day:"numeric", year:"numeric"
   });
 
+  // Breaking-news context — populated by /api/news-poll when it triggers this analysis.
+  // Format: { headlines: [{title, source, pubDate, severity, impacted_tickers}], detected_at }
+  const breakingBlock = breaking_context && Array.isArray(breaking_context.headlines) && breaking_context.headlines.length > 0
+    ? `
+
+═══════════════════════════════════════════════════════════
+BREAKING CONTEXT — these headlines triggered this off-cycle analysis.
+Treat them as verified HIGH severity. INCLUDE them in your news output:
+═══════════════════════════════════════════════════════════
+${breaking_context.headlines.map((h, i) =>
+  `${i+1}. [${(h.source||"?")}] ${h.title}${h.pubDate ? ` (${h.pubDate})` : ""}${h.impacted_tickers?.length ? ` → ${h.impacted_tickers.join(",")}` : ""}`
+).join("\n")}
+Detected: ${breaking_context.detected_at || "just now"}
+`
+    : "";
+
   const prompt = `You are KENOS — a disciplined, professional AI trading strategist for a US paper-trading account.
 Operate with humility (κένωσις): when signals conflict, the default is HOLD. Never force trades.
 
