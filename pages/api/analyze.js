@@ -286,26 +286,61 @@ OUTPUT — return ONLY raw JSON, no markdown, no commentary:
       "category": "geopolitical|macro|earnings|ma|regulatory|other",
       "impacted_tickers": ["NVDA", "TSM"],
       "ts_iso": "2026-05-22T14:30:00Z or null if unknown",
-      "source": "Reuters|Bloomberg|... or 'web' if uncertain"
+      "source": "Reuters|Bloomberg|CNBC|... or 'web' if uncertain",
+      "source_tier": 1,
+      "verification": "confirmed_official|tier1_outlet|multi_source|single_source|unverified",
+      "rumor_flag": false
     }
   ],
+  "credibility_summary": {
+    "tier1_count": 0,
+    "rumor_count": 0,
+    "single_source_high_count": 0
+  },
   "risk": "LOW|MEDIUM|HIGH|EXTREME",
   "top_sector": "sector name",
   "outlook": "1-sentence forward view tied to upcoming catalysts"
 }
 
-NEWS RULES:
+NEWS RULES (Phase A+D — credibility classification):
 - Return 8-12 news items. NEVER less than 5.
-- Order by severity (HIGH first), then by recency.
-- severity HIGH = market-moving (Fed decision, war escalation, major earnings beat/miss,
+- Order by: rumor_flag=false first → then severity HIGH first → then recency.
+
+SEVERITY:
+- HIGH = market-moving (Fed decision, war escalation, major earnings beat/miss,
   bankruptcy, surprise rate change, ≥5% index move, breaking-news ticker downgrade).
-- severity MEDIUM = ticker-specific guidance, M&A talks, analyst rating change,
+- MEDIUM = ticker-specific guidance, M&A talks, analyst rating change,
   regional economic data, central-bank speakers.
-- severity LOW = routine market commentary, scheduled report previews.
+- LOW = routine market commentary, scheduled report previews.
+
+SOURCE_TIER — credibility of the publisher:
+- 1 = Tier 1 (Reuters, Bloomberg, AP, WSJ, FT, official gov/Fed/SEC sources)
+- 2 = Tier 2 (CNBC, MarketWatch, Yahoo Finance, BBC, NYT, NPR)
+- 3 = Tier 3 (Investing.com, SeekingAlpha, Benzinga, smaller financial blogs)
+- If unknown, default to 2.
+
+VERIFICATION — confidence in the news being true and consequential:
+- "confirmed_official" = direct government / Fed / SEC press release OR ≥2 Tier-1 outlets agree
+- "tier1_outlet"       = single Tier-1 outlet reporting (Reuters/Bloomberg/AP/WSJ)
+- "multi_source"       = ≥2 Tier-2/3 outlets reporting same event
+- "single_source"      = only one outlet, not Tier-1
+- "unverified"         = social media / blog / anonymous source
+
+RUMOR_FLAG — set TRUE when headline contains speculative markers:
+- "reportedly", "sources say", "anonymous", "unconfirmed", "allegedly", "speculation"
+- "may/might/could announce/cut/merge", "weighing a deal", "in talks to/with/for"
+- Pure leaks without official confirmation.
+
+IMPACT ON YOUR DECISIONS:
+- When a decision relies primarily on rumor_flag=true news, REDUCE its conf by 0.15.
+- When relying on verification="single_source", REDUCE conf by 0.10.
+- When relying on verification="confirmed_official" or "tier1_outlet", give full weight.
 - impacted_tickers: tickers from the watchlist that this news likely moves.
-  Empty array if no direct impact. NEVER guess broad market reaction here.
-- If a "BREAKING CONTEXT" section appears in this prompt, you MUST include those
-  headlines (already verified breaking) with HIGH severity in your news array.`;
+  Empty array if no direct impact.
+
+If a "BREAKING CONTEXT" section appears in this prompt, those headlines were
+pre-verified by the news-poll endpoint. Include them with their reported
+verification level. Do not downgrade them.`;
 
   try {
     // Gemini 2.5 Pro endpoint with Google Search grounding.
