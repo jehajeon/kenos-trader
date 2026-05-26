@@ -735,25 +735,74 @@ export default function Home() {
                       )}
                       {log[0].news?.length > 0 && (
                         <div style={{ paddingTop: s.md, marginTop: s.md, borderTop: `1px solid ${c.hairline}` }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.xs }}>
-                            <Eyebrow>news</Eyebrow>
-                            {log[0].breaking && <MonoBadge tone="error">🚨 breaking</MonoBadge>}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.xs, flexWrap: "wrap", gap: s.xs }}>
+                            <Eyebrow>news (verified + classified)</Eyebrow>
+                            <div style={{ display: "flex", gap: s.xs }}>
+                              {log[0].breaking && <MonoBadge tone="error">🚨 breaking</MonoBadge>}
+                              {log[0].credibility_summary?.tier1_count > 0 && (
+                                <MonoBadge tone="success">{log[0].credibility_summary.tier1_count} tier1</MonoBadge>
+                              )}
+                              {log[0].credibility_summary?.rumor_count > 0 && (
+                                <MonoBadge tone="warning">{log[0].credibility_summary.rumor_count} rumor</MonoBadge>
+                              )}
+                            </div>
                           </div>
                           {log[0].news.slice(0, 10).map((n, i) => {
-                            // Support both old format (string) and new format (object)
                             const isObj = typeof n === "object" && n !== null;
                             const headline = isObj ? n.headline : n;
                             const sev = isObj ? n.severity : null;
                             const tickers = isObj ? n.impacted_tickers : null;
                             const cat = isObj ? n.category : null;
+                            const tier = isObj ? n.source_tier : null;
+                            const verification = isObj ? n.verification : null;
+                            const rumor = isObj ? n.rumor_flag : false;
+                            const source = isObj ? n.source : null;
                             const sevTone = sev === "HIGH" ? "error" : sev === "MEDIUM" ? "warning" : null;
+
+                            // Visual emphasis based on credibility:
+                            //   rumor → very dim, warning border
+                            //   tier 1 confirmed → full ink
+                            //   single_source → slightly dim
+                            //   default → normal
+                            const opacity = rumor ? 0.55 : (verification === "single_source" || verification === "unverified" ? 0.75 : 1);
+                            const leftBorder = rumor
+                              ? `2px solid ${c.warning}`
+                              : verification === "confirmed_official"
+                                ? `2px solid ${c.success}`
+                                : verification === "tier1_outlet"
+                                  ? `2px solid ${c.link}`
+                                  : "none";
+
                             return (
-                              <div key={i} style={{ ...t.bodySM, color: c.body, padding: "5px 0", borderTop: i > 0 ? `1px solid ${c.hairline}` : "none", display: "flex", gap: s.xs, alignItems: "flex-start", flexWrap: "wrap" }}>
+                              <div key={i} style={{
+                                ...t.bodySM, color: c.body, padding: "6px 8px",
+                                borderTop: i > 0 ? `1px solid ${c.hairline}` : "none",
+                                borderLeft: leftBorder,
+                                display: "flex", gap: s.xs, alignItems: "flex-start", flexWrap: "wrap",
+                                opacity,
+                              }}>
                                 {sev && <MonoBadge tone={sevTone || "default"}>{sev.toLowerCase()}</MonoBadge>}
-                                <span style={{ flex: "1 1 200px", minWidth: 0, color: c.ink }}>{headline}</span>
+                                {rumor && <MonoBadge tone="warning">rumor</MonoBadge>}
+                                <span style={{ flex: "1 1 200px", minWidth: 0, color: rumor ? c.body : c.ink, textDecoration: rumor ? "line-through" : "none" }}>
+                                  {headline}
+                                </span>
                                 {tickers?.length > 0 && (
                                   <span style={{ ...t.captionMono, color: c.link }}>{tickers.join(" ")}</span>
                                 )}
+                                {tier && (
+                                  <span style={{ ...t.captionMono, color: tier === 1 ? c.success : tier === 2 ? c.body : c.mute }} title={`Tier ${tier} outlet`}>
+                                    T{tier}
+                                  </span>
+                                )}
+                                {verification && (
+                                  <span style={{ ...t.captionMono, color: c.mute }} title={`Verification: ${verification}`}>
+                                    {verification === "confirmed_official" ? "✓✓" :
+                                     verification === "tier1_outlet"       ? "✓"  :
+                                     verification === "multi_source"       ? "≥2" :
+                                     verification === "single_source"      ? "1"  : "?"}
+                                  </span>
+                                )}
+                                {source && <span style={{ ...t.captionMono, color: c.mute }}>{source}</span>}
                                 {cat && <span style={{ ...t.captionMono, color: c.mute }}>{cat}</span>}
                               </div>
                             );
