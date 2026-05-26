@@ -210,27 +210,40 @@ export default async function handler(req, res) {
     return !isNaN(t) && t >= cutoff;
   });
 
-  // 4) Classify each headline
-  const scored = recent.map(it => {
+  // 4) Classify each headline — severity + tickers + rumor flag
+  const classified = recent.map(it => {
     const blob = `${it.title} ${it.description || ""}`;
     return {
       title: it.title,
       link: it.link,
       source: it.source,
+      tier: it.tier,
       pubDate: it.pubDate,
       severity: classifySeverity(blob),
+      rumor_flag: detectRumor(blob),
       impacted_tickers: extractTickers(blob),
     };
   });
 
-  // 5) Sort: HIGH first, then MEDIUM, then LOW; within same severity newest first
+  // 5) Cross-source verification (Phase A) — group similar headlines, assign verification level
+  const scored = crossVerify(classified);
+
+  // 6) Sort: HIGH first, then MEDIUM, then LOW; within same severity newest first
   const order = { HIGH: 0, MEDIUM: 1, LOW: 2 };
   scored.sort((a, b) => {
     if (order[a.severity] !== order[b.severity]) return order[a.severity] - order[b.severity];
     return new Date(b.pubDate || 0) - new Date(a.pubDate || 0);
   });
 
-  const highEvents = scored.filter(s => s.severity === "HIGH").slice(0, 6);
+  // 7) Trigger eligibility — only fire auto-run for *verified* HIGH events:
+  //    - confirmed_official (Tier 1 + cross-source) OR tier1_outlet OR multi_source
+  //    - rumor_flag === false  (no speculation triggers)
+  //    Single-source non-Tier-1 HIGH events are kept in response but DON'T trigger.
+  const highEvents = scored.filter(s =>
+    s.severity === "HIGH" &&
+    !s.rumor_flag &&
+    (s.verification === "confirmed_official" || s.verification === "tier1_outlet" || s.verification === "multi_source")
+  ).slice(0, 6);
 
   // 6) If HIGH severity found, trigger /api/auto-run with breaking context
   let triggered = false;
