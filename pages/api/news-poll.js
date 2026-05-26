@@ -245,7 +245,7 @@ export default async function handler(req, res) {
     (s.verification === "confirmed_official" || s.verification === "tier1_outlet" || s.verification === "multi_source")
   ).slice(0, 6);
 
-  // 6) If HIGH severity found, trigger /api/auto-run with breaking context
+  // 8) If verified HIGH events found, trigger /api/auto-run with breaking context
   let triggered = false;
   let triggerStatus = null;
   if (highEvents.length > 0) {
@@ -264,8 +264,12 @@ export default async function handler(req, res) {
             headlines: highEvents.map(e => ({
               title: e.title,
               source: e.source,
+              tier: e.tier,
               pubDate: e.pubDate,
               severity: e.severity,
+              verification: e.verification,
+              source_count: e.source_count,
+              sister_sources: e.sister_sources,
               impacted_tickers: e.impacted_tickers,
             })),
           },
@@ -279,14 +283,24 @@ export default async function handler(req, res) {
     }
   }
 
+  // Count breakdowns for visibility
+  const highRaw   = scored.filter(s => s.severity === "HIGH").length;
+  const highSuppressed = scored.filter(s =>
+    s.severity === "HIGH" && (s.rumor_flag || s.verification === "single_source")
+  ).length;
+  const rumorCount = scored.filter(s => s.rumor_flag).length;
+
   return res.status(200).json({
     polled_at: new Date().toISOString(),
     feeds_count: FEEDS.length,
     items_total: allItems.length,
     items_recent: recent.length,
-    high_count: highEvents.length,
+    high_count_triggered: highEvents.length,
+    high_count_total:     highRaw,
+    high_count_suppressed: highSuppressed,
     medium_count: scored.filter(s => s.severity === "MEDIUM").length,
     low_count:    scored.filter(s => s.severity === "LOW").length,
+    rumor_count:  rumorCount,
     triggered,
     trigger_status: triggerStatus,
     high_events: highEvents,
