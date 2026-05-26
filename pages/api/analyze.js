@@ -12,20 +12,20 @@ const SECTORS = {
   "🔬 바이오":   ["MRNA","ABBV","REGN"],
   "⚡ 에너지":   ["XOM","CVX","NEE"],
   "🔋 배터리":   ["TSLA","ALB"],
-  "💾 반도체":   ["NVDA","AMD","TSM","AVGO"],
+  "💾 반도체":   ["NVDA","AMD","TSM","AVGO","MU"],
   "🤖 AI/테크":  ["MSFT","GOOGL","META","PLTR","AMZN"],
-  "🌱 환경":     ["ENPH","FSLR"],
+  "🌱 환경":     ["ENPH","FSLR","FCEL"],
   "🚗 자동차":   ["TM","GM"],
   "🚀 미래유망": ["RKLB","IONQ","AAPL","COIN"],
 };
 
 // 상관관계가 높은 종목 그룹 (한 그룹에서 과도한 동시 보유 방지)
 const CORRELATION_GROUPS = {
-  "semiconductors": ["NVDA","AMD","TSM","AVGO"],
+  "semiconductors": ["NVDA","AMD","TSM","AVGO","MU"],
   "megacap_tech":   ["MSFT","GOOGL","META","AMZN","AAPL"],
   "ev_battery":     ["TSLA","ALB"],
   "oil_majors":     ["XOM","CVX"],
-  "solar":          ["ENPH","FSLR"],
+  "clean_energy":   ["ENPH","FSLR","FCEL"],
   "autos":          ["TM","GM"],
   "speculative":    ["RKLB","IONQ","COIN","PLTR"],
 };
