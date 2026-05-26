@@ -10,12 +10,18 @@ import {
 const ALPACA_URL = "https://paper-api.alpaca.markets";
 
 // 시간 윈도우 (ET, [시작분, 종료분] in minutes since midnight)
-// 9:00 AM = 540, 10:00 AM = 600, 3:30 PM = 930, Sun 8 PM = 1200
+// Scenario C: 시장 시간 매시간 — 9:00 AM ~ 3:30 PM ET + Sunday 20:00 ET 리뷰.
+// 평일 8회/일 + 일 1회 = 주 41회. Gemini Flash 한도(~250/일)의 1/30 수준.
 const RUN_WINDOWS = {
-  "morning_preview":  { day:"weekday", min:535, max:545, execute:true,  label:"09:00 ET" },
-  "post_open":        { day:"weekday", min:595, max:605, execute:true,  label:"10:00 ET" },
-  "pre_close":        { day:"weekday", min:925, max:935, execute:true,  label:"15:30 ET" },
-  "weekly_review":    { day:"sunday",  min:1195,max:1205,execute:false, label:"Sun 20:00 ET" },
+  "morning_preview":  { day:"weekday", min:535,  max:545,  execute:true,  label:"09:00 ET (pre-market)" },
+  "post_open":        { day:"weekday", min:595,  max:605,  execute:true,  label:"10:00 ET (post-open)" },
+  "late_morning":     { day:"weekday", min:655,  max:665,  execute:true,  label:"11:00 ET" },
+  "midday":           { day:"weekday", min:715,  max:725,  execute:true,  label:"12:00 ET" },
+  "early_afternoon":  { day:"weekday", min:775,  max:785,  execute:true,  label:"13:00 ET" },
+  "midafternoon":     { day:"weekday", min:835,  max:845,  execute:true,  label:"14:00 ET" },
+  "late_afternoon":   { day:"weekday", min:895,  max:905,  execute:true,  label:"15:00 ET" },
+  "pre_close":        { day:"weekday", min:925,  max:935,  execute:true,  label:"15:30 ET (pre-close)" },
+  "weekly_review":    { day:"sunday",  min:1195, max:1205, execute:false, label:"Sun 20:00 ET (review)" },
 };
 
 // 이벤트 블랙아웃 — 시간 기반 일괄 차단은 비활성화.
