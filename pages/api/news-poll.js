@@ -130,6 +130,57 @@ function classifySeverity(text) {
   return "LOW";
 }
 
+// Phase A — rumor / speculation pattern detection.
+// Headlines containing these markers are flagged as unverified speculation.
+const RUMOR_PATTERNS = [
+  /\b(rumored|reportedly|sources say|anonymous source|unconfirmed|allegedly|speculation|speculat\w+)\b/i,
+  /\b(may|might|could|possibly|potentially)\s+(announce|cut|merge|acquire|buy|file|launch)/i,
+  /\bweighing\s+(a|the)?\s*(deal|sale|merger|spinoff|bankruptcy)/i,
+  /\bin\s+talks\s+(to|with|for|about)/i,
+  /\b(could|might|may)\s+be\s+(close|near|considering|exploring)/i,
+];
+
+function detectRumor(text) {
+  const blob = (text || "").toLowerCase();
+  return RUMOR_PATTERNS.some(re => re.test(blob));
+}
+
+// Cross-source verification: group similar headlines, count unique sources, find min-tier.
+// verification levels:
+//   "confirmed_official" — Tier 1 source + multi-source confirm (≥2 unique sources)
+//   "tier1_outlet"       — Tier 1 source single
+//   "multi_source"       — ≥2 unique sources at any tier
+//   "single_source"      — only one source, not Tier 1
+function crossVerify(items) {
+  const norm = (t) => (t || "").toLowerCase().replace(/[^a-z0-9 ]/g, "").split(/\s+/).filter(w => w.length > 3).slice(0, 6).sort().join("|");
+  const groups = {};
+  for (const it of items) {
+    const key = norm(it.title);
+    if (!key) continue;
+    (groups[key] = groups[key] || []).push(it);
+  }
+  return items.map(it => {
+    const key = norm(it.title);
+    const group = groups[key] || [it];
+    const sources = new Set(group.map(g => g.source));
+    const minTier = Math.min(...group.map(g => g.tier || 99));
+
+    let verification;
+    if (minTier === 1 && sources.size >= 2)      verification = "confirmed_official";
+    else if (minTier === 1)                       verification = "tier1_outlet";
+    else if (sources.size >= 2)                   verification = "multi_source";
+    else                                          verification = "single_source";
+
+    return {
+      ...it,
+      verification,
+      source_count: sources.size,
+      min_tier: minTier === 99 ? null : minTier,
+      sister_sources: Array.from(sources).filter(s => s !== it.source),
+    };
+  });
+}
+
 function extractTickers(text) {
   if (!text) return [];
   const found = new Set();
