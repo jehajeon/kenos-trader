@@ -17,9 +17,9 @@ const SECTORS = {
   bio:      ["MRNA","ABBV","REGN"],
   energy:   ["XOM","CVX","NEE"],
   battery:  ["TSLA","ALB"],
-  semi:     ["NVDA","AMD","TSM","AVGO"],
+  semi:     ["NVDA","AMD","TSM","AVGO","MU"],
   ai_tech:  ["MSFT","GOOGL","META","PLTR","AMZN"],
-  green:    ["ENPH","FSLR"],
+  green:    ["ENPH","FSLR","FCEL"],
   auto:     ["TM","GM"],
   future:   ["RKLB","IONQ","AAPL","COIN"],
 };
