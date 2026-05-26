@@ -83,8 +83,8 @@ async function alpaca(path, method="GET", body=null) {
 // 섹터 매핑만 로컬 유지 (UI에는 노출 안 함, 가드레일에만 사용)
 const SECTORS = {
   "🇰🇷 한국":["EWY"], "🔬 바이오":["MRNA","ABBV","REGN"], "⚡ 에너지":["XOM","CVX","NEE"],
-  "🔋 배터리":["TSLA","ALB"], "💾 반도체":["NVDA","AMD","TSM","AVGO"],
-  "🤖 AI/테크":["MSFT","GOOGL","META","PLTR","AMZN"], "🌱 환경":["ENPH","FSLR"],
+  "🔋 배터리":["TSLA","ALB"], "💾 반도체":["NVDA","AMD","TSM","AVGO","MU"],
+  "🤖 AI/테크":["MSFT","GOOGL","META","PLTR","AMZN"], "🌱 환경":["ENPH","FSLR","FCEL"],
   "🚗 자동차":["TM","GM"], "🚀 미래유망":["RKLB","IONQ","AAPL","COIN"],
 };
 const TICKER_SECTOR = {};
