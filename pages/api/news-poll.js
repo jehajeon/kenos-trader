@@ -75,7 +75,7 @@ async function fetchFeed(feed) {
     });
     if (!r.ok) return [];
     const xml = await r.text();
-    return parseRssItems(xml, feed.name);
+    return parseRssItems(xml, feed.name, feed.tier);
   } catch (e) {
     console.warn(`[news-poll] feed ${feed.name} failed:`, e.message);
     return [];
