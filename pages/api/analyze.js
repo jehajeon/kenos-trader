@@ -215,7 +215,7 @@ R3. Per-position cap: no single ticker may exceed ${(positionCapPct*100).toFixed
 R4. Cash floor: maintain ≥ ${(cashFloorPct*100).toFixed(0)}% cash. Never recommend a BUY that breaches this.
 R5. Sector cap: no single sector > ${(sectorCapPct*100).toFixed(0)}% of portfolio.
 R6. Correlation cap: from any CORRELATION_GROUP, max 2-3 names AND combined ≤ ${(corrCapPct*100).toFixed(0)}%.
-    Groups: semiconductors, megacap_tech, ev_battery, oil_majors, solar, autos, speculative.
+    Groups: semiconductors, megacap_tech, ev_battery, oil_majors, clean_energy, autos, speculative.
 R7. Earnings blackout: NO new BUY if earnings within 3 trading days.
     HOLD or trim instead. Existing positions may be sold pre-earnings if conf ≥ ${sellProfitConfMin.toFixed(2)}.
 R8. Stop-loss: for each holding, recommend SELL if unrealized loss ≤ ${(stopLossPct*100).toFixed(0)}%
