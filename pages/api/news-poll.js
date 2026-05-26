@@ -7,12 +7,21 @@
 // Cost: $0 — pure RSS + regex classification (no LLM in this endpoint).
 // LLM (Gemini 2.5 Pro) invoked only when HIGH severity detected → triggers auto-run.
 
+// Source tiers (Phase A — credibility rating):
+//   Tier 1 = highest trust (Reuters / Bloomberg / AP / WSJ / FT)
+//   Tier 2 = mainstream trusted (CNBC / MarketWatch / Yahoo / BBC)
+//   Tier 3 = mixed quality, more rumor-prone (Investing / SeekingAlpha / Benzinga)
 const FEEDS = [
-  // Markets / business
-  { name: "MarketWatch",   url: "https://feeds.content.dowjones.io/public/rss/mw_topstories" },
-  { name: "CNBC",          url: "https://www.cnbc.com/id/100003114/device/rss/rss.html" },
-  { name: "Yahoo Finance", url: "https://finance.yahoo.com/news/rssindex" },
-  { name: "Investing.com", url: "https://www.investing.com/rss/news.rss" },
+  // Tier 1 — gold standard
+  { name: "Reuters",       url: "https://www.reutersagency.com/feed/?best-sectors=business-finance",      tier: 1 },
+  { name: "AP Business",   url: "https://rsshub.app/apnews/topics/business",                                tier: 1 },
+  { name: "WSJ Markets",   url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                            tier: 1 },
+  // Tier 2 — mainstream
+  { name: "MarketWatch",   url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",               tier: 2 },
+  { name: "CNBC",          url: "https://www.cnbc.com/id/100003114/device/rss/rss.html",                    tier: 2 },
+  { name: "Yahoo Finance", url: "https://finance.yahoo.com/news/rssindex",                                  tier: 2 },
+  // Tier 3 — trader-oriented (signals + rumors)
+  { name: "Investing.com", url: "https://www.investing.com/rss/news.rss",                                   tier: 3 },
 ];
 
 // Watchlist tickers used for impact extraction
