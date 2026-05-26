@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: KENOS 자동 분석 트리거
         run: |
-          response=$(curl -X POST "${{ secrets.VERCEL_URL }}/api/auto-run" \
+          response=$(curl -X POST "${{ secrets.VERCEL_URL || 'https://kenos-trader.vercel.app' }}/api/auto-run" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             --max-time 120 \

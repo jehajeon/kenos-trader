@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Poll RSS feeds for breaking news
         run: |
-          response=$(curl -X POST "${{ secrets.VERCEL_URL }}/api/news-poll" \
+          response=$(curl -X POST "${{ secrets.VERCEL_URL || 'https://kenos-trader.vercel.app' }}/api/news-poll" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             --max-time 60 \
