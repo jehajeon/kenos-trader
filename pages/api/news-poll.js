@@ -83,10 +83,9 @@ async function fetchFeed(feed) {
 }
 
 // Minimal RSS 2.0 / Atom XML parser — regex-based, no deps.
-// Returns: [{ title, link, pubDate, description, source }]
-function parseRssItems(xml, sourceName) {
+// Returns: [{ title, link, pubDate, description, source, tier }]
+function parseRssItems(xml, sourceName, tier) {
   const items = [];
-  // RSS 2.0 <item>...</item> blocks
   const itemMatches = xml.matchAll(/<item\b[\s\S]*?<\/item>/gi);
   for (const m of itemMatches) {
     const block = m[0];
@@ -94,9 +93,8 @@ function parseRssItems(xml, sourceName) {
     const link  = extractTag(block, "link");
     const date  = extractTag(block, "pubDate") || extractTag(block, "dc:date");
     const desc  = extractTag(block, "description");
-    if (title) items.push({ title, link, pubDate: date, description: desc, source: sourceName });
+    if (title) items.push({ title, link, pubDate: date, description: desc, source: sourceName, tier });
   }
-  // Atom <entry>...</entry> blocks (Yahoo, Atom feeds)
   if (items.length === 0) {
     const entryMatches = xml.matchAll(/<entry\b[\s\S]*?<\/entry>/gi);
     for (const m of entryMatches) {
@@ -105,7 +103,7 @@ function parseRssItems(xml, sourceName) {
       const date  = extractTag(block, "updated") || extractTag(block, "published");
       const desc  = extractTag(block, "summary") || extractTag(block, "content");
       const link  = (block.match(/<link[^>]*href=["']([^"']+)["']/i) || [])[1];
-      if (title) items.push({ title, link, pubDate: date, description: desc, source: sourceName });
+      if (title) items.push({ title, link, pubDate: date, description: desc, source: sourceName, tier });
     }
   }
   return items;
